@@ -1,0 +1,18 @@
+[package]
+name = "snowflake-jwt"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1"
+sha2 = "0.10"
+base64 = "0.21"
+jsonwebtoken = "8"
+openssl = "0.10.46"
+serde = "1.0.156"
+time = "0.3.20"
+
+[dev-dependencies]
+anyhow = "1"
