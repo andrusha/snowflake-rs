@@ -2,6 +2,7 @@ use anyhow::{Context, Error, Result};
 use clap::Parser;
 use std::fs;
 use snowflake_odbc_api::auth::SnowflakeAuth;
+use snowflake_odbc_api::SnowflakeOdbcApi;
 
 extern crate snowflake_odbc_api;
 
@@ -16,13 +17,17 @@ struct Args {
     #[arg(short, long)]
     account_identifier: String,
 
+    /// Database name
+    #[arg(short, long)]
+    database: String,
+
+    /// Schema name
+    #[arg(long)]
+    schema: String,
+
     /// Warehouse
     #[arg(short, long)]
     warehouse: String,
-
-    /// Database
-    #[arg(short, long)]
-    database: String,
 
     /// username to whom the private key belongs to
     #[arg(short, long)]
@@ -31,6 +36,10 @@ struct Args {
     /// role which user will assume
     #[arg(short, long)]
     role: String,
+
+    /// sql statement to execute and print result from
+    #[arg(long)]
+    sql: String,
 }
 
 fn main() -> Result<()> {
@@ -43,12 +52,14 @@ fn main() -> Result<()> {
         &args.role,
         &args.account_identifier,
         &args.warehouse,
-        &args.database
+        &args.database,
     )?;
 
-    let token = auth.get_master_token()?;
+    let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
+    let res = api.exec(&args.sql)?;
 
-    println!("{:?}", token);
+    println!("{}", res);
+
 
     Ok(())
 }

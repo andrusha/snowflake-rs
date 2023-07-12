@@ -22,21 +22,21 @@ pub enum AuthError {
 }
 
 
+// todo: contain all the tokens and their expiration times
 #[derive(Debug)]
 pub struct AuthTokens {
-    session_token: String,
-    master_token: String,
+    pub session_token: String,
+    pub master_token: String,
 }
 
+// todo: allow to query for configuration parameters as well
 pub trait SnowflakeAuth {
     fn get_master_token(&self) -> Result<AuthTokens, AuthError>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Parameter {
-    #[serde(rename = "name")]
     name: String,
-    #[serde(rename = "value")]
     value: serde_json::Value, // As value can be of different types (bool, String, i64, etc.), we'll use serde_json::Value
 }
 
@@ -56,7 +56,6 @@ pub struct SessionInfo {
 pub struct AuthData {
     #[serde(rename = "masterToken")]
     master_token: String,
-    #[serde(rename = "token")]
     token: String,
     #[serde(rename = "validityInSeconds")]
     validity_in_seconds: i64,
@@ -78,7 +77,6 @@ pub struct AuthData {
     new_client_for_upgrade: Option<String>,
     #[serde(rename = "sessionId")]
     session_id: i64,
-    #[serde(rename = "parameters")]
     parameters: Vec<Parameter>,
     #[serde(rename = "sessionInfo")]
     session_info: SessionInfo,
@@ -96,13 +94,10 @@ pub struct AuthData {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AuthResponse {
-    #[serde(rename = "data")]
+    // todo: make data optional (what if message fails?)
     data: AuthData,
-    #[serde(rename = "code")]
     code: Option<String>,
-    #[serde(rename = "message")]
     message: Option<String>,
-    #[serde(rename = "success")]
     success: bool,
 }
 
@@ -110,6 +105,7 @@ pub struct SnowflakeCertAuth {
     private_key_pem: Vec<u8>,
     account_identifier: String,
     warehouse: String,
+    database: String,
     username: String,
     role: String,
 }
@@ -121,10 +117,12 @@ impl SnowflakeCertAuth {
         role: &str,
         account_identifier: &str,
         warehouse: &str,
+        database: &str,
     ) -> Result<Self, AuthError> {
         let username = username.to_uppercase();
         let account_identifier = account_identifier.to_uppercase();
         let warehouse = warehouse.to_uppercase();
+        let database = database.to_uppercase();
         let role = role.to_uppercase();
         let private_key_pem = private_key_pem.to_vec();
 
@@ -132,17 +130,20 @@ impl SnowflakeCertAuth {
             private_key_pem,
             account_identifier,
             warehouse,
+            database,
             username,
             role,
         })
     }
 
+    // todo: close session after it's over
     fn auth_query(&self) -> Result<AuthResponse, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let jwt_token = generate_jwt_token(&self.private_key_pem, &full_identifier)?;
 
         let url = format!("https://{}.snowflakecomputing.com/session/v1/login-request", &self.account_identifier);
 
+        // todo: increment subsequent requst ids (on retry?)
         let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
         let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
         let request_guid = Uuid::new_v4();
@@ -151,7 +152,8 @@ impl SnowflakeCertAuth {
             &[
                 ("requestId", request_id.to_string()),
                 ("request_guid", request_guid.to_string()),
-                // ("databaseName", &self.database),
+                // todo: make database optional
+                ("databaseName", self.database.clone()),
                 ("roleName", self.role.clone()),
                 // ("schemaName", self.schema),
                 ("warehouse", self.warehouse.clone())
@@ -184,6 +186,7 @@ impl SnowflakeCertAuth {
             }
         }))?;
 
+        // todo: properly handle error responses in messages
         serde_json::from_reader(resp.into_reader())
             .map_err(|e| DeserializationError(e.to_string()))
     }
