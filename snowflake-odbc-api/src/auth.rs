@@ -18,7 +18,7 @@ pub enum AuthError {
     RequestError(#[from] ureq::Error),
 
     #[error(transparent)]
-    UrlParseError(#[from] url::ParseError)
+    UrlParseError(#[from] url::ParseError),
 }
 
 
@@ -167,8 +167,9 @@ impl SnowflakeCertAuth {
             .set("accept", "application/json")
             .send_json(ureq::json!({
             "data": {
-                "CLIENT_APP_ID": "Rust",
-                "CLIENT_APP_VERSION": "0.0.1",
+                // pretend to be Go client in order to default to Arrow output format
+                "CLIENT_APP_ID": "Go",
+                "CLIENT_APP_VERSION": "1.6.22",
                 "SVN_REVISION": "",
                 "ACCOUNT_NAME": &self.account_identifier,
                 "LOGIN_NAME": &self.username,
@@ -198,7 +199,7 @@ impl SnowflakeAuth for SnowflakeCertAuth {
 
         Ok(AuthTokens {
             session_token: resp.data.token,
-            master_token: resp.data.master_token
+            master_token: resp.data.master_token,
         })
     }
 }
