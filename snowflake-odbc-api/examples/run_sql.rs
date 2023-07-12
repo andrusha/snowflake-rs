@@ -57,7 +57,7 @@ fn main() -> Result<()> {
 
     let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
 
-    let res = api.exec(&args.sql)?;
+    let res = api.exec_arrow(&args.sql)?;
 
     println!("{:?}", res);
 

@@ -1,3 +1,6 @@
+use std::io::Cursor;
+use arrow::datatypes::ToByteSlice;
+use arrow::ipc::reader::{FileReader, StreamReader};
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use thiserror::Error;
@@ -23,7 +26,10 @@ pub enum SnowflakeApiError {
     UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
-    ResponseDeserializationError(#[from] base64::DecodeError)
+    ResponseDeserializationError(#[from] base64::DecodeError),
+
+    #[error(transparent)]
+    ArrowError(#[from] arrow::error::ArrowError),
 }
 
 use serde::{Serialize, Deserialize};
@@ -165,11 +171,18 @@ impl SnowflakeOdbcApi {
         serde_json::from_reader(resp.into_reader()).map_err(|e| DeserializationError(e.to_string()))
     }
 
-    pub fn exec_arrow(&self, sql: &str) -> Result<RecordBatch, SnowflakeApiError> {
+    pub fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
         let resp = self.exec(sql)?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
+        // let mut bytes = Cursor::new(bytes);
 
-        // RecordBatch::try_from_iter()
-        unimplemented!()
+        let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
+
+        let mut res = Vec::new();
+        for batch in fr {
+            res.push(batch?);
+        }
+
+        Ok(res)
     }
 }
