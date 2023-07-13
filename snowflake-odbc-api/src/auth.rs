@@ -203,3 +203,100 @@ impl SnowflakeAuth for SnowflakeCertAuth {
         })
     }
 }
+
+pub struct SnowflakePasswordAuth {
+    account_identifier: String,
+    warehouse: String,
+    database: String,
+    username: String,
+    password: String,
+    role: String,
+}
+
+impl SnowflakePasswordAuth {
+    pub fn new(
+        username: &str,
+        password: &str,
+        role: &str,
+        account_identifier: &str,
+        warehouse: &str,
+        database: &str,
+    ) -> Result<Self, AuthError> {
+        let username = username.to_uppercase();
+        let password = password.to_string();
+        let account_identifier = account_identifier.to_uppercase();
+        let warehouse = warehouse.to_uppercase();
+        let database = database.to_uppercase();
+        let role = role.to_uppercase();
+
+        Ok(SnowflakePasswordAuth {
+            account_identifier,
+            warehouse,
+            database,
+            username,
+            password,
+            role,
+        })
+    }
+
+    // todo: close session after it's over
+    fn auth_query(&self) -> Result<AuthResponse, AuthError> {
+        let url = format!("https://{}.snowflakecomputing.com/session/v1/login-request", &self.account_identifier);
+
+        // todo: increment subsequent requst ids (on retry?)
+        let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
+        let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
+        let request_guid = Uuid::new_v4();
+        let url = Url::parse_with_params(
+            &url,
+            &[
+                ("requestId", request_id.to_string()),
+                ("request_guid", request_guid.to_string()),
+                // todo: make database optional
+                ("databaseName", self.database.clone()),
+                ("roleName", self.role.clone()),
+                // ("schemaName", self.schema),
+                ("warehouse", self.warehouse.clone())
+            ])?;
+
+        let resp = ureq::request_url("POST", &url)
+            .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .set("User-Agent", "Rust/0.0.1")
+            .set("accept", "application/json")
+            .send_json(ureq::json!({
+            "data": {
+                // pretend to be Go client in order to default to Arrow output format
+                "CLIENT_APP_ID": "Go",
+                "CLIENT_APP_VERSION": "1.6.22",
+                "SVN_REVISION": "",
+                "ACCOUNT_NAME": &self.account_identifier,
+                "LOGIN_NAME": &self.username,
+                "PASSWORD": &self.password,
+                "SESSION_PARAMETERS": {
+                    "CLIENT_VALIDATE_DEFAULT_PARAMETERS": true
+                },
+                "CLIENT_ENVIRONMENT": {
+                    "APPLICATION": "Rust",
+                    "OS": "darwin",
+                    "OS_VERSION": "gc-arm64",
+                    "OCSP_MODE": "FAIL_OPEN"
+                }
+            }
+        }))?;
+
+        // todo: properly handle error responses in messages
+        serde_json::from_reader(resp.into_reader())
+            .map_err(|e| DeserializationError(e.to_string()))
+    }
+}
+
+impl SnowflakeAuth for SnowflakePasswordAuth {
+    fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
+        let resp = self.auth_query()?;
+
+        Ok(AuthTokens {
+            session_token: resp.data.token,
+            master_token: resp.data.master_token,
+        })
+    }
+}

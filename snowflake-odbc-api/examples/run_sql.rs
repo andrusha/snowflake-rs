@@ -1,6 +1,7 @@
 use anyhow::{Context, Error, Result};
 use clap::Parser;
 use std::fs;
+use arrow::array::AsArray;
 use snowflake_odbc_api::auth::SnowflakeAuth;
 use snowflake_odbc_api::SnowflakeOdbcApi;
 
@@ -59,7 +60,11 @@ fn main() -> Result<()> {
 
     let res = api.exec_arrow(&args.sql)?;
 
-    println!("{:?}", res);
+    for b in res.iter() {
+        println!("Schema: {:?}, Num rows: {}", b.schema(), b.num_rows());
+        // println!("0 val: {:?}", b.column(0).as_string().value(0));
+    }
+
 
 
     Ok(())

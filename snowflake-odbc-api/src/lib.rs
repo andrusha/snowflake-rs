@@ -174,7 +174,6 @@ impl SnowflakeOdbcApi {
     pub fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
         let resp = self.exec(sql)?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
-        // let mut bytes = Cursor::new(bytes);
 
         let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
 
