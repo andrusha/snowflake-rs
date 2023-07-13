@@ -113,7 +113,7 @@ pub struct Entry {
 }
 
 pub struct SnowflakeOdbcApi {
-    auth: Box<dyn SnowflakeAuth>,
+    auth: Box<dyn SnowflakeAuth + Send>,
     account_identifier: String,
 }
 
