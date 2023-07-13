@@ -21,3 +21,4 @@ base64 = "0.21"
 [dev-dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+arrow = { version = "42", features = ["prettyprint"] }

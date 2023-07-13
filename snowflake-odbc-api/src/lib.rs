@@ -1,6 +1,5 @@
-use std::io::Cursor;
 use arrow::datatypes::ToByteSlice;
-use arrow::ipc::reader::{FileReader, StreamReader};
+use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use thiserror::Error;
@@ -120,7 +119,7 @@ pub struct SnowflakeOdbcApi {
 
 impl SnowflakeOdbcApi {
     pub fn new(
-        auth: Box<dyn SnowflakeAuth>,
+        auth: Box<dyn SnowflakeAuth + Send>,
         account_identifier: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let account_identifier = account_identifier.to_uppercase();

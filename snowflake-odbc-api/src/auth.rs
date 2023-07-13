@@ -145,7 +145,6 @@ impl SnowflakeCertAuth {
 
         // todo: increment subsequent requst ids (on retry?)
         let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
-        let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
         let request_guid = Uuid::new_v4();
         let url = Url::parse_with_params(
             &url,
@@ -245,7 +244,6 @@ impl SnowflakePasswordAuth {
 
         // todo: increment subsequent requst ids (on retry?)
         let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
-        let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
         let request_guid = Uuid::new_v4();
         let url = Url::parse_with_params(
             &url,
