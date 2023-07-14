@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use snowflake_jwt::generate_jwt_token;
 
-use crate::auth::{AuthTokens, SnowflakeAuth};
 use crate::auth::response::AuthResponse;
+use crate::auth::{AuthTokens, SnowflakeAuth};
+use crate::request::{request, QueryType};
 use crate::AuthError;
-use crate::request::{QueryType, request};
 
 pub struct SnowflakeCertAuth {
     private_key_pem: Vec<u8>,
@@ -86,7 +86,8 @@ impl SnowflakeAuth for SnowflakeCertAuth {
             &get_params,
             None,
             body,
-        ).await?;
+        )
+        .await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

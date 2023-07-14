@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
-use crate::auth::{AuthError, AuthTokens, SnowflakeAuth};
 use crate::auth::response::AuthResponse;
-use crate::request::{QueryType, request};
+use crate::auth::{AuthError, AuthTokens, SnowflakeAuth};
+use crate::request::{request, QueryType};
 
 pub struct SnowflakePasswordAuth {
     account_identifier: String,
@@ -80,7 +80,8 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
             &get_params,
             None,
             body,
-        ).await?;
+        )
+        .await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

@@ -15,7 +15,7 @@ use thiserror::Error;
 pub use auth::{SnowflakeCertAuth, SnowflakePasswordAuth};
 
 use crate::auth::{AuthError, SnowflakeAuth};
-use crate::request::{QueryType, request};
+use crate::request::{request, QueryType};
 
 mod auth;
 mod request;
@@ -136,7 +136,7 @@ pub struct Entry {
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum PutResponse {
-    S3(S3PutResponse)
+    S3(S3PutResponse),
 }
 
 #[derive(Deserialize, Debug)]
@@ -246,20 +246,16 @@ impl SnowflakeOdbcApi {
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
-            self
-                .exec_put(sql)
-                .await
-                .map(|_| QueryResult::Empty)
+            self.exec_put(sql).await.map(|_| QueryResult::Empty)
         } else {
-            self
-                .exec_arrow(sql)
-                .await
-                .map(QueryResult::Arrow)
+            self.exec_arrow(sql).await.map(QueryResult::Arrow)
         }
     }
 
     async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
-        let resp = self.run_sql::<PutResponse>(sql, QueryType::JsonQuery).await?;
+        let resp = self
+            .run_sql::<PutResponse>(sql, QueryType::JsonQuery)
+            .await?;
         log::debug!("Got put response: {:?}", resp);
 
         match resp {
@@ -297,13 +293,9 @@ impl SnowflakeOdbcApi {
 
             let src_path = object_store::path::Path::parse(src_path)?;
 
-            let fs = LocalFileSystem::new()
-                .get(&src_path)
-                .await?;
+            let fs = LocalFileSystem::new().get(&src_path).await?;
 
-            s3
-                .put(&dest_path, fs.bytes().await?)
-                .await?;
+            s3.put(&dest_path, fs.bytes().await?).await?;
         }
 
         Ok(())
@@ -311,16 +303,20 @@ impl SnowflakeOdbcApi {
 
     #[cfg(debug_assertions)]
     pub async fn exec_response(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
-        self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery).await
+        self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
+            .await
     }
 
     #[cfg(debug_assertions)]
     pub async fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
-        self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery).await
+        self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery)
+            .await
     }
 
     async fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
-        let resp = self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery).await?;
+        let resp = self
+            .run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
+            .await?;
         log::debug!("Got query response: {:?}", resp);
 
         log::info!("Decoding Arrow");
@@ -336,7 +332,11 @@ impl SnowflakeOdbcApi {
         Ok(res)
     }
 
-    async fn run_sql<R: serde::de::DeserializeOwned>(&self, sql: &str, query_type: QueryType) -> Result<R, SnowflakeApiError> {
+    async fn run_sql<R: serde::de::DeserializeOwned>(
+        &self,
+        sql: &str,
+        query_type: QueryType,
+    ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql);
 
         let tokens = self.auth.get_master_token().await?;
@@ -348,13 +348,8 @@ impl SnowflakeOdbcApi {
                 "isInternal": false
         });
 
-        let resp = request::<R>(
-            query_type,
-            &self.account_identifier,
-            &[],
-            Some(&auth),
-            body,
-        ).await?;
+        let resp =
+            request::<R>(query_type, &self.account_identifier, &[], Some(&auth), body).await?;
 
         Ok(resp)
     }

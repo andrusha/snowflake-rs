@@ -16,7 +16,7 @@ pub enum RequestError {
     DeserializationError(#[from] serde_json::Error),
 
     #[error(transparent)]
-    InvalidHeaderError(#[from] header::InvalidHeaderValue)
+    InvalidHeaderError(#[from] header::InvalidHeaderValue),
 }
 
 struct QueryContext {
@@ -84,18 +84,17 @@ pub async fn request<R: serde::de::DeserializeOwned>(
 
     let mut headers = HeaderMap::new();
     headers.append(header::USER_AGENT, HeaderValue::from_static("Rust/0.0.1"));
-    headers.append(header::ACCEPT, HeaderValue::from_static(context.accept_mime));
+    headers.append(
+        header::ACCEPT,
+        HeaderValue::from_static(context.accept_mime),
+    );
     if let Some(auth) = auth {
         headers.append(header::AUTHORIZATION, HeaderValue::from_str(auth)?);
     }
 
     // todo: persist client to use connection polling
     let client = reqwest::Client::new();
-    let resp = client.post(url)
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
+    let resp = client.post(url).headers(headers).json(&body).send().await?;
 
     Ok(resp.json::<R>().await?)
 }
