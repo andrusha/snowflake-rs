@@ -1,7 +1,7 @@
 use anyhow::{Context, Error, Result};
 use clap::Parser;
+use snowflake_odbc_api::SnowflakePasswordAuth;
 use std::fs;
-use snowflake_odbc_api::auth::SnowflakeAuth;
 
 extern crate snowflake_odbc_api;
 
@@ -36,13 +36,13 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let auth = snowflake_odbc_api::auth::SnowflakePasswordAuth::new(
+    let auth = SnowflakePasswordAuth::new(
         &args.username,
         &args.password,
         &args.role,
         &args.account_identifier,
         &args.warehouse,
-        &args.database
+        &args.database,
     )?;
 
     let token = auth.get_master_token()?;

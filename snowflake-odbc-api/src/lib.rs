@@ -1,28 +1,24 @@
+use crate::auth::{AuthError, SnowflakeAuth};
+use crate::request::{request, QueryType};
 use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use url::Url;
-use uuid::Uuid;
-use crate::auth::{AuthError, SnowflakeAuth};
-use crate::SnowflakeApiError::DeserializationError;
 
-pub mod auth;
+pub use auth::{SnowflakeCertAuth, SnowflakePasswordAuth};
+
+mod auth;
+mod request;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
-    #[error("response deserialization error: `{0}`")]
-    DeserializationError(String),
-
     #[error(transparent)]
-    RequestError(#[from] ureq::Error),
+    RequestError(#[from] request::RequestError),
 
     #[error(transparent)]
     AuthError(#[from] AuthError),
-
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     ResponseDeserializationError(#[from] base64::DecodeError),
@@ -30,8 +26,6 @@ pub enum SnowflakeApiError {
     #[error(transparent)]
     ArrowError(#[from] arrow::error::ArrowError),
 }
-
-use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct QueryResponse {
@@ -129,51 +123,52 @@ impl SnowflakeOdbcApi {
         })
     }
 
-    // todo: unify query requests with retries in the single place (with auth)
-    // todo: what exec query should return if successful?
-    pub fn exec(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
-        // todo: rotate tokens and keep until lifetime
+    pub fn exec_response(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
         let tokens = self.auth.get_master_token()?;
-
-        let url = format!("https://{}.snowflakecomputing.com/queries/v1/query-request", &self.account_identifier);
-
-        // todo: increment subsequent request ids
-        let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
-        let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
-        let request_guid = Uuid::new_v4();
-        let url = Url::parse_with_params(
-            &url,
-            &[
-                ("clientStartTime", client_start_time.to_string()),
-                ("requestId", request_id.to_string()),
-                ("request_guid", request_guid.to_string()),
-            ])?;
-        // alter session set C_API_QUERY_RESULT_FORMAT=ARROW_FORCE
-        // alter session set query_result_format=arrow_force
         let auth = format!("Snowflake Token=\"{}\"", &tokens.session_token);
-        let resp = ureq::request_url("POST", &url)
-            .set("Authorization", &auth)
-            // pretend to be C-API to get compatible responses
-            //.set("User-Agent", "C API/1.0.0")
-            .set("User-Agent", "Rust/0.0.1")
-            .set("accept", "application/snowflake")
-            .send_json(ureq::json!({
+        let body = ureq::json!({
                 "sqlText": &sql,
-                // todo: async support needed?
                 "asyncExec": false,
-                // todo: why is it needed?
                 "sequenceId": 1,
                 "isInternal": false
-        }))?;
+        });
 
-        // todo: properly handle error responses in messages
-        serde_json::from_reader(resp.into_reader()).map_err(|e| DeserializationError(e.to_string()))
+        let resp = request::<QueryResponse>(
+            QueryType::ArrowQuery,
+            &self.account_identifier,
+            &[],
+            &[("Authorization", &auth)],
+            body,
+        )?;
+
+        Ok(resp)
+    }
+
+    pub fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
+        let tokens = self.auth.get_master_token()?;
+        let auth = format!("Snowflake Token=\"{}\"", &tokens.session_token);
+        let body = ureq::json!({
+                "sqlText": &sql,
+                "asyncExec": false,
+                "sequenceId": 1,
+                "isInternal": false
+        });
+
+        let resp = request::<serde_json::Value>(
+            QueryType::JsonQuery,
+            &self.account_identifier,
+            &[],
+            &[("Authorization", &auth)],
+            body,
+        )?;
+
+        Ok(resp)
     }
 
     pub fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
-        let resp = self.exec(sql)?;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
+        let resp = self.exec_response(sql)?;
 
+        let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
         let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
 
         let mut res = Vec::new();
