@@ -1,3 +1,5 @@
+use reqwest::header;
+use reqwest::header::{HeaderMap, HeaderValue};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -5,18 +7,21 @@ use uuid::Uuid;
 #[derive(Error, Debug)]
 pub enum RequestError {
     #[error(transparent)]
-    RequestError(#[from] ureq::Error),
+    RequestError(#[from] reqwest::Error),
 
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     DeserializationError(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    InvalidHeaderError(#[from] header::InvalidHeaderValue)
 }
 
-struct QueryContext<'a> {
-    path: &'a str,
-    accept_mime: &'a str,
+struct QueryContext {
+    path: &'static str,
+    accept_mime: &'static str,
 }
 
 pub enum QueryType {
@@ -46,11 +51,11 @@ impl QueryType {
 
 // todo: implement retry logic
 // todo: implement soft error handling
-pub fn request<R: serde::de::DeserializeOwned>(
+pub async fn request<R: serde::de::DeserializeOwned>(
     query_type: QueryType,
     account_identifier: &str,
     extra_get_params: &[(&str, &str)],
-    extra_headers: &[(&str, &str)],
+    auth: Option<&str>,
     body: impl serde::Serialize,
 ) -> Result<R, RequestError> {
     let context = query_type.query_context();
@@ -63,7 +68,6 @@ pub fn request<R: serde::de::DeserializeOwned>(
     let client_start_time = client_start_time.to_string();
     let request_id = request_id.to_string();
     let request_guid = request_guid.to_string();
-
 
     let mut get_params = vec![
         ("clientStartTime", client_start_time.as_str()),
@@ -78,18 +82,20 @@ pub fn request<R: serde::de::DeserializeOwned>(
     );
     let url = Url::parse_with_params(&url, get_params)?;
 
-    let mut req = ureq::request_url("POST", &url)
-        .set("User-Agent", "Rust/0.0.1")
-        .set("accept", context.accept_mime);
-
-    for (k, v) in extra_headers {
-        req = req.set(k, v);
+    let mut headers = HeaderMap::new();
+    headers.append(header::USER_AGENT, HeaderValue::from_static("Rust/0.0.1"));
+    headers.append(header::ACCEPT, HeaderValue::from_static(context.accept_mime));
+    if let Some(auth) = auth {
+        headers.append(header::AUTHORIZATION, HeaderValue::from_str(auth)?);
     }
 
-    let resp = req.send_json(body)?;
+    // todo: persist client to use connection polling
+    let client = reqwest::Client::new();
+    let resp = client.post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?;
 
-    // todo: properly handle error responses in messages
-    let res = serde_json::from_reader(resp.into_reader())?;
-
-    Ok(res)
+    Ok(resp.json::<R>().await?)
 }

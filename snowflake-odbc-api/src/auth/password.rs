@@ -1,6 +1,8 @@
-use crate::auth::response::AuthResponse;
+use async_trait::async_trait;
+
 use crate::auth::{AuthError, AuthTokens, SnowflakeAuth};
-use crate::request::{request, QueryType};
+use crate::auth::response::AuthResponse;
+use crate::request::{QueryType, request};
 
 pub struct SnowflakePasswordAuth {
     account_identifier: String,
@@ -38,8 +40,9 @@ impl SnowflakePasswordAuth {
     }
 }
 
+#[async_trait]
 impl SnowflakeAuth for SnowflakePasswordAuth {
-    fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
+    async fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
         log::info!("Logging in using password authentication");
 
         let get_params = vec![
@@ -50,7 +53,7 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
             ("warehouse", self.warehouse.as_str()),
         ];
 
-        let body = ureq::json!({
+        let body = serde_json::json!({
             "data": {
                 // pretend to be Go client in order to default to Arrow output format
                 "CLIENT_APP_ID": "Go",
@@ -75,9 +78,9 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
             QueryType::Auth,
             &self.account_identifier,
             &get_params,
-            &[],
+            None,
             body,
-        )?;
+        ).await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

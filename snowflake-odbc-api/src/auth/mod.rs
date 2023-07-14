@@ -1,8 +1,10 @@
 use thiserror::Error;
-use crate::request;
 
+use async_trait::async_trait;
 pub use cert::SnowflakeCertAuth;
 pub use password::SnowflakePasswordAuth;
+
+use crate::request;
 
 mod cert;
 mod password;
@@ -26,6 +28,7 @@ pub struct AuthTokens {
 
 // todo: allow to query for configuration parameters as well
 // todo: close session after it's over
+#[async_trait]
 pub trait SnowflakeAuth {
-    fn get_master_token(&self) -> Result<AuthTokens, AuthError>;
+    async fn get_master_token(&self) -> Result<AuthTokens, AuthError>;
 }

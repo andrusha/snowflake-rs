@@ -1,7 +1,6 @@
 use std::io;
 use std::path::Path;
-use crate::auth::{AuthError, SnowflakeAuth};
-use crate::request::{request, QueryType};
+
 use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
@@ -14,6 +13,9 @@ use serde::Deserialize;
 use thiserror::Error;
 
 pub use auth::{SnowflakeCertAuth, SnowflakePasswordAuth};
+
+use crate::auth::{AuthError, SnowflakeAuth};
+use crate::request::{QueryType, request};
 
 mod auth;
 mod request;
@@ -227,7 +229,7 @@ pub struct SnowflakeOdbcApi {
 
 impl SnowflakeOdbcApi {
     pub fn new(
-        auth: Box<dyn SnowflakeAuth + Send>,
+        auth: Box<impl SnowflakeAuth + Send + 'static>,
         account_identifier: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let account_identifier = account_identifier.to_uppercase();
@@ -251,68 +253,74 @@ impl SnowflakeOdbcApi {
         } else {
             self
                 .exec_arrow(sql)
+                .await
                 .map(QueryResult::Arrow)
         }
     }
 
     async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
-        let resp = self.run_sql::<PutResponse>(sql, QueryType::JsonQuery)?;
+        let resp = self.run_sql::<PutResponse>(sql, QueryType::JsonQuery).await?;
         log::debug!("Got put response: {:?}", resp);
 
         match resp {
-            PutResponse::S3(r) => {
-                let info = r.data.upload_info;
-                let (bucket_name, bucket_path) = info
-                    .location
-                    .split_once("/")
-                    .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
+            PutResponse::S3(r) => self.put_to_s3(r).await?,
+        }
 
-                let s3 = AmazonS3Builder::new()
-                    .with_region(info.region)
-                    .with_bucket_name(bucket_name)
-                    .with_access_key_id(info.creds.aws_key_id)
-                    .with_secret_access_key(info.creds.aws_secret_key)
-                    .with_token(info.creds.aws_token)
-                    .build()?;
+        Ok(())
+    }
 
-                for src_path in r.data.src_locations.iter() {
-                    let path = Path::new(src_path);
-                    let filename = path
-                        .file_name()
-                        .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
+    async fn put_to_s3(&self, r: S3PutResponse) -> Result<(), SnowflakeApiError> {
+        let info = r.data.upload_info;
+        let (bucket_name, bucket_path) = info
+            .location
+            .split_once("/")
+            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
 
-                    // fixme: unwrap
-                    let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
-                    let dest_path = object_store::path::Path::parse(dest_path)?;
+        let s3 = AmazonS3Builder::new()
+            .with_region(info.region)
+            .with_bucket_name(bucket_name)
+            .with_access_key_id(info.creds.aws_key_id)
+            .with_secret_access_key(info.creds.aws_secret_key)
+            .with_token(info.creds.aws_token)
+            .build()?;
 
-                    let src_path = object_store::path::Path::parse(src_path)?;
+        // todo: security vulnerability, external system tells you which files to upload
+        for src_path in r.data.src_locations.iter() {
+            let path = Path::new(src_path);
+            let filename = path
+                .file_name()
+                .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
 
-                    let fs = LocalFileSystem::new()
-                        .get(&src_path)
-                        .await?;
+            // fixme: unwrap
+            let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
+            let dest_path = object_store::path::Path::parse(dest_path)?;
 
-                    s3
-                        .put(&dest_path, fs.bytes().await?)
-                        .await?;
-                }
-            }
+            let src_path = object_store::path::Path::parse(src_path)?;
+
+            let fs = LocalFileSystem::new()
+                .get(&src_path)
+                .await?;
+
+            s3
+                .put(&dest_path, fs.bytes().await?)
+                .await?;
         }
 
         Ok(())
     }
 
     #[cfg(debug_assertions)]
-    pub fn exec_response(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
-        self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
+    pub async fn exec_response(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
+        self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery).await
     }
 
     #[cfg(debug_assertions)]
-    pub fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
-        self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery)
+    pub async fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
+        self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery).await
     }
 
-    fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
-        let resp = self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)?;
+    async fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
+        let resp = self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery).await?;
         log::debug!("Got query response: {:?}", resp);
 
         log::info!("Decoding Arrow");
@@ -328,12 +336,12 @@ impl SnowflakeOdbcApi {
         Ok(res)
     }
 
-    fn run_sql<R: serde::de::DeserializeOwned>(&self, sql: &str, query_type: QueryType) -> Result<R, SnowflakeApiError> {
+    async fn run_sql<R: serde::de::DeserializeOwned>(&self, sql: &str, query_type: QueryType) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql);
 
-        let tokens = self.auth.get_master_token()?;
+        let tokens = self.auth.get_master_token().await?;
         let auth = format!("Snowflake Token=\"{}\"", &tokens.session_token);
-        let body = ureq::json!({
+        let body = serde_json::json!({
                 "sqlText": &sql,
                 "asyncExec": false,
                 "sequenceId": 1,
@@ -344,9 +352,9 @@ impl SnowflakeOdbcApi {
             query_type,
             &self.account_identifier,
             &[],
-            &[("Authorization", &auth)],
+            Some(&auth),
             body,
-        )?;
+        ).await?;
 
         Ok(resp)
     }

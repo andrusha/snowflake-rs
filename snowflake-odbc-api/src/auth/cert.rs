@@ -1,9 +1,10 @@
-use crate::auth::response::AuthResponse;
-use crate::auth::{AuthTokens, SnowflakeAuth};
-use crate::request::{request, QueryType};
-use crate::AuthError;
+use async_trait::async_trait;
 use snowflake_jwt::generate_jwt_token;
 
+use crate::auth::{AuthTokens, SnowflakeAuth};
+use crate::auth::response::AuthResponse;
+use crate::AuthError;
+use crate::request::{QueryType, request};
 
 pub struct SnowflakeCertAuth {
     private_key_pem: Vec<u8>,
@@ -41,8 +42,9 @@ impl SnowflakeCertAuth {
     }
 }
 
+#[async_trait]
 impl SnowflakeAuth for SnowflakeCertAuth {
-    fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
+    async fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
         log::info!("Logging in using certificate authentication");
 
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
@@ -56,7 +58,7 @@ impl SnowflakeAuth for SnowflakeCertAuth {
             ("warehouse", self.warehouse.as_str()),
         ];
 
-        let body = ureq::json!({
+        let body = serde_json::json!({
             "data": {
                 // pretend to be Go client in order to default to Arrow output format
                 "CLIENT_APP_ID": "Go",
@@ -82,9 +84,9 @@ impl SnowflakeAuth for SnowflakeCertAuth {
             QueryType::Auth,
             &self.account_identifier,
             &get_params,
-            &[],
+            None,
             body,
-        )?;
+        ).await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

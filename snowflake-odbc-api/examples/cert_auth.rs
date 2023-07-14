@@ -33,7 +33,10 @@ struct Args {
     role: String,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::init();
+
     let args = Args::parse();
     let pem = fs::read(&args.private_key)?;
 
@@ -46,7 +49,7 @@ fn main() -> Result<()> {
         &args.database,
     )?;
 
-    let token = auth.get_master_token()?;
+    let token = auth.get_master_token().await?;
 
     println!("{:?}", token);
 
