@@ -42,7 +42,10 @@ struct Args {
     sql: String,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::init();
+
     let args = Args::parse();
     let pem = fs::read(&args.private_key)?;
 
@@ -56,13 +59,10 @@ fn main() -> Result<()> {
     )?;
 
     let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
-    let res = api.exec(&args.sql)?;
+    let res = api.exec(&args.sql).await?;
     match res {
         QueryResult::Arrow(a) => {
             println!("{}", pretty_format_batches(&a).unwrap());
-        }
-        QueryResult::Put(p) => {
-            println!("{:?}", p);
         }
         QueryResult::Empty => {
             println!("Query finished successfully")

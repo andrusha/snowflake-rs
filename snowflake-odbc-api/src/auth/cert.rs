@@ -43,6 +43,8 @@ impl SnowflakeCertAuth {
 
 impl SnowflakeAuth for SnowflakeCertAuth {
     fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
+        log::info!("Logging in using certificate authentication");
+
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let jwt_token = generate_jwt_token(&self.private_key_pem, &full_identifier)?;
 
@@ -83,6 +85,7 @@ impl SnowflakeAuth for SnowflakeCertAuth {
             &[],
             body,
         )?;
+        log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {
             session_token: resp.data.token,

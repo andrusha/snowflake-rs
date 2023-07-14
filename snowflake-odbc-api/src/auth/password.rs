@@ -40,6 +40,8 @@ impl SnowflakePasswordAuth {
 
 impl SnowflakeAuth for SnowflakePasswordAuth {
     fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
+        log::info!("Logging in using password authentication");
+
         let get_params = vec![
             // todo: make database optional
             ("databaseName", self.database.as_str()),
@@ -76,6 +78,7 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
             &[],
             body,
         )?;
+        log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {
             session_token: resp.data.token,

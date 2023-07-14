@@ -18,8 +18,10 @@ uuid = { version = "1.4", features = ["v1", "v4"] }
 arrow = "42"
 base64 = "0.21"
 regex = "1"
+object_store = { version = "0.6", features = ["aws"] }
 
 [dev-dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 arrow = { version = "42", features = ["prettyprint"] }
+tokio = { version = "1", features=["full"] }
