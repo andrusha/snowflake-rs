@@ -17,6 +17,7 @@ url = "2"
 uuid = { version = "1.4", features = ["v1", "v4"] }
 arrow = "42"
 base64 = "0.21"
+regex = "1"
 
 [dev-dependencies]
 anyhow = "1"
