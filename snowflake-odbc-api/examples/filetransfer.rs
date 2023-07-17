@@ -6,13 +6,6 @@ use std::fs;
 
 extern crate snowflake_odbc_api;
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-enum Output {
-    Arrow,
-    Json,
-    Query
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -44,13 +37,8 @@ struct Args {
     #[arg(short, long)]
     role: String,
 
-    /// sql statement to execute and print result from
     #[arg(long)]
-    sql: String,
-
-    #[arg(long)]
-    #[arg(value_enum, default_value_t = Output::Arrow)]
-    output: Output
+    csv_path: String,
 }
 
 #[tokio::main]
@@ -68,28 +56,41 @@ async fn main() -> Result<()> {
         &args.warehouse,
         &args.database,
     )?;
-
     let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
 
-    match args.output {
-        Output::Arrow => {
-            let res = api.exec(&args.sql).await?;
-            match res {
-                QueryResult::Arrow(a) => {
-                    println!("{}", pretty_format_batches(&a).unwrap());
-                }
-                QueryResult::Empty => {
-                    println!("Query finished successfully")
-                }
-            }
+    let table_name = format!("{}.OSCAR_AGE_MALE", &args.schema);
+
+    log::info!("Creating table");
+    api.exec(
+        &format!("CREATE OR REPLACE TABLE {}(Index integer, Year integer, Age integer, Name varchar, Movie varchar);", table_name)
+    ).await?;
+
+    log::info!("Uploading CSV file");
+    api.exec(
+        &format!("PUT file://{} @{}.%OSCAR_AGE_MALE;", &args.csv_path, &args.schema)
+    ).await?;
+
+    log::info!("Create temporary file format");
+    api.exec(
+        "CREATE OR REPLACE TEMPORARY FILE FORMAT CUSTOM_CSV_FORMAT TYPE = CSV COMPRESSION = NONE FIELD_DELIMITER = ',' FILE_EXTENSION = 'csv' SKIP_HEADER = 1;"
+    ).await?;
+
+    log::info!("Copying into table");
+    api.exec(
+        &format!("COPY INTO {} FILE_FORMAT = CUSTOM_CSV_FORMAT;", table_name)
+    ).await?;
+
+    log::info!("Querying for results");
+    let res = api.exec(
+        &format!("SELECT * FROM {};", table_name)
+    ).await?;
+
+    match res {
+        QueryResult::Arrow(a) => {
+            println!("{}", pretty_format_batches(&a).unwrap());
         }
-        Output::Json => {
-            let res = api.exec_json(&args.sql).await?;
-            println!("{}", res.to_string());
-        }
-        Output::Query => {
-            let res = api.exec_response(&args.sql).await?;
-            println!("{:?}", res);
+        QueryResult::Empty => {
+            println!("Nothing was returned")
         }
     }
 

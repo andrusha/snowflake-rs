@@ -9,16 +9,20 @@ use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
 use regex::Regex;
-use serde::Deserialize;
 use thiserror::Error;
 
 pub use auth::{SnowflakeCertAuth, SnowflakePasswordAuth};
+use put_response::{PutResponse, S3PutResponse};
+use query_response::QueryResponse;
 
 use crate::auth::{AuthError, SnowflakeAuth};
-use crate::request::{request, QueryType};
+use crate::request::{QueryType, request};
 
 mod auth;
 mod request;
+mod query_response;
+mod put_response;
+mod error_response;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -48,174 +52,13 @@ pub enum SnowflakeApiError {
 
     #[error(transparent)]
     ObjectStorePathError(#[from] object_store::path::Error),
+
+    #[error("Snowflake API error: `{0}`")]
+    ApiError(String),
+
+    #[error("Snowflake API empty response could mean that query wasn't executed correctly or API call was faulty")]
+    EmptyResponse
 }
-
-// select query response
-
-#[derive(Deserialize, Debug)]
-pub struct QueryResponse {
-    pub data: QueryData,
-    pub code: Option<String>,
-    pub message: Option<String>,
-    pub success: bool,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct QueryData {
-    pub parameters: Vec<Parameter>,
-    pub rowtype: Vec<RowType>,
-    #[serde(rename = "rowsetBase64")]
-    pub rowset_base64: String,
-    pub total: u32,
-    pub returned: u32,
-    #[serde(rename = "queryId")]
-    pub query_id: String,
-    #[serde(rename = "databaseProvider")]
-    pub database_provider: Option<String>,
-    #[serde(rename = "finalDatabaseName")]
-    pub final_database_name: String,
-    #[serde(rename = "finalSchemaName")]
-    pub final_schema_name: Option<String>,
-    #[serde(rename = "finalWarehouseName")]
-    pub final_warehouse_name: String,
-    #[serde(rename = "finalRoleName")]
-    pub final_role_name: String,
-    #[serde(rename = "numberOfBinds")]
-    pub number_of_binds: u32,
-    #[serde(rename = "arrayBindSupported")]
-    pub array_bind_supported: bool,
-    #[serde(rename = "statementTypeId")]
-    pub statement_type_id: u32,
-    pub version: u32,
-    #[serde(rename = "sendResultTime")]
-    pub send_result_time: u64,
-    #[serde(rename = "queryResultFormat")]
-    pub query_result_format: String,
-    #[serde(rename = "queryContext")]
-    pub query_context: QueryContext,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Parameter {
-    pub name: String,
-    // todo: parse parameters correctly
-    pub value: serde_json::Value,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct RowType {
-    pub name: String,
-    pub database: String,
-    pub schema: String,
-    pub table: String,
-    pub scale: Option<u32>,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub precision: Option<u32>,
-    #[serde(rename = "byteLength")]
-    pub byte_length: Option<u32>,
-    pub nullable: bool,
-    pub collation: Option<String>,
-    pub length: Option<u32>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct QueryContext {
-    pub entries: Vec<Entry>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Entry {
-    pub id: u32,
-    pub timestamp: u64,
-    pub priority: u32,
-}
-
-// put response
-
-#[derive(Deserialize, Debug)]
-#[serde(untagged)]
-pub enum PutResponse {
-    S3(S3PutResponse),
-}
-
-#[derive(Deserialize, Debug)]
-pub struct S3PutResponse {
-    pub data: S3PutData,
-    pub code: Option<String>,
-    pub message: Option<String>,
-    pub success: bool,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct S3PutData {
-    #[serde(rename = "uploadInfo")]
-    pub upload_info: Info,
-    #[serde(rename = "src_locations")]
-    pub src_locations: Vec<String>,
-    pub parallel: u32,
-    pub threshold: u64,
-    #[serde(rename = "autoCompress")]
-    pub auto_compress: bool,
-    pub overwrite: bool,
-    #[serde(rename = "sourceCompression")]
-    pub source_compression: String,
-    #[serde(rename = "clientShowEncryptionParameter")]
-    pub client_show_encryption_parameter: bool,
-    #[serde(rename = "queryId")]
-    pub query_id: String,
-    #[serde(rename = "encryptionMaterial")]
-    pub encryption_material: EncryptionMaterial,
-    #[serde(rename = "stageInfo")]
-    pub stage_info: Info,
-    pub command: String,
-    pub kind: Option<String>,
-    pub operation: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Info {
-    #[serde(rename = "locationType")]
-    pub location_type: String,
-    pub location: String,
-    pub path: String,
-    pub region: String,
-    #[serde(rename = "storageAccount")]
-    pub storage_account: Option<String>,
-    #[serde(rename = "isClientSideEncrypted")]
-    pub is_client_side_encrypted: bool,
-    pub creds: Creds,
-    #[serde(rename = "presignedUrl")]
-    pub presigned_url: Option<String>,
-    #[serde(rename = "endPoint")]
-    pub end_point: Option<String>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Creds {
-    #[serde(rename = "AWS_KEY_ID")]
-    pub aws_key_id: String,
-    #[serde(rename = "AWS_SECRET_KEY")]
-    pub aws_secret_key: String,
-    #[serde(rename = "AWS_TOKEN")]
-    pub aws_token: String,
-    #[serde(rename = "AWS_ID")]
-    pub aws_id: String,
-    #[serde(rename = "AWS_KEY")]
-    pub aws_key: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct EncryptionMaterial {
-    #[serde(rename = "queryStageMasterKey")]
-    pub query_stage_master_key: String,
-    #[serde(rename = "queryId")]
-    pub query_id: String,
-    #[serde(rename = "smkId")]
-    pub smk_id: u64,
-}
-
-// actual api
 
 pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
@@ -260,13 +103,14 @@ impl SnowflakeOdbcApi {
 
         match resp {
             PutResponse::S3(r) => self.put_to_s3(r).await?,
+            PutResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
         }
 
         Ok(())
     }
 
     async fn put_to_s3(&self, r: S3PutResponse) -> Result<(), SnowflakeApiError> {
-        let info = r.data.upload_info;
+        let info = r.data.stage_info;
         let (bucket_name, bucket_path) = info
             .location
             .split_once("/")
@@ -280,7 +124,7 @@ impl SnowflakeOdbcApi {
             .with_token(info.creds.aws_token)
             .build()?;
 
-        // todo: security vulnerability, external system tells you which files to upload
+        // todo: security vulnerability, external system tells you which local files to upload
         for src_path in r.data.src_locations.iter() {
             let path = Path::new(src_path);
             let filename = path
@@ -319,6 +163,20 @@ impl SnowflakeOdbcApi {
             .await?;
         log::debug!("Got query response: {:?}", resp);
 
+        let resp = match resp {
+            // processable response
+            QueryResponse::Result(r) => {r}
+            // something went wrong
+            QueryResponse::Empty(_) => return Err(SnowflakeApiError::EmptyResponse),
+            QueryResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
+        };
+
+        // if response was empty, base64 data is empty string
+        // todo: still return empty arrow batch with proper schema?
+        if resp.data.returned == 0 {
+            return Ok(Vec::new())
+        }
+
         log::info!("Decoding Arrow");
         let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
         let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
@@ -339,6 +197,7 @@ impl SnowflakeOdbcApi {
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql);
 
+        // todo: cache token, rotate when needed
         let tokens = self.auth.get_master_token().await?;
         let auth = format!("Snowflake Token=\"{}\"", &tokens.session_token);
         let body = serde_json::json!({
