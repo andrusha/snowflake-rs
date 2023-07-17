@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::error_response::ErrorResponse;
+use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]

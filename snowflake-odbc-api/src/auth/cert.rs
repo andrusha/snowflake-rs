@@ -1,12 +1,14 @@
 use async_trait::async_trait;
 use snowflake_jwt::generate_jwt_token;
+use std::sync::Arc;
 
 use crate::auth::response::AuthResponse;
 use crate::auth::{AuthTokens, SnowflakeAuth};
-use crate::request::{request, QueryType};
+use crate::connection::{Connection, QueryType};
 use crate::AuthError;
 
 pub struct SnowflakeCertAuth {
+    connection: Arc<Connection>,
     private_key_pem: Vec<u8>,
     account_identifier: String,
     warehouse: String,
@@ -17,6 +19,7 @@ pub struct SnowflakeCertAuth {
 
 impl SnowflakeCertAuth {
     pub fn new(
+        connection: Arc<Connection>,
         private_key_pem: &[u8],
         username: &str,
         role: &str,
@@ -32,6 +35,7 @@ impl SnowflakeCertAuth {
         let private_key_pem = private_key_pem.to_vec();
 
         Ok(SnowflakeCertAuth {
+            connection,
             private_key_pem,
             account_identifier,
             warehouse,
@@ -80,14 +84,16 @@ impl SnowflakeAuth for SnowflakeCertAuth {
             }
         });
 
-        let resp = request::<AuthResponse>(
-            QueryType::Auth,
-            &self.account_identifier,
-            &get_params,
-            None,
-            body,
-        )
-        .await?;
+        let resp = self
+            .connection
+            .request::<AuthResponse>(
+                QueryType::Auth,
+                &self.account_identifier,
+                &get_params,
+                None,
+                body,
+            )
+            .await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

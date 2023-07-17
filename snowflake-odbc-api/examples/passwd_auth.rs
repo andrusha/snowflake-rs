@@ -1,7 +1,7 @@
-use anyhow::{Context, Error, Result};
+use anyhow::Result;
 use clap::Parser;
-use snowflake_odbc_api::SnowflakePasswordAuth;
-use std::fs;
+use snowflake_odbc_api::{Connection, SnowflakeAuth, SnowflakePasswordAuth};
+use std::sync::Arc;
 
 extern crate snowflake_odbc_api;
 
@@ -39,7 +39,10 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    let connection = Arc::new(Connection::new()?);
+
     let auth = SnowflakePasswordAuth::new(
+        connection,
         &args.username,
         &args.password,
         &args.role,

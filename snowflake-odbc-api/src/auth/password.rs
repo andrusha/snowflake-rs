@@ -1,10 +1,12 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use crate::auth::response::AuthResponse;
 use crate::auth::{AuthError, AuthTokens, SnowflakeAuth};
-use crate::request::{request, QueryType};
+use crate::connection::{Connection, QueryType};
 
 pub struct SnowflakePasswordAuth {
+    connection: Arc<Connection>,
     account_identifier: String,
     warehouse: String,
     database: String,
@@ -15,6 +17,7 @@ pub struct SnowflakePasswordAuth {
 
 impl SnowflakePasswordAuth {
     pub fn new(
+        connection: Arc<Connection>,
         username: &str,
         password: &str,
         role: &str,
@@ -30,6 +33,7 @@ impl SnowflakePasswordAuth {
         let role = role.to_uppercase();
 
         Ok(SnowflakePasswordAuth {
+            connection,
             account_identifier,
             warehouse,
             database,
@@ -74,14 +78,16 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
             }
         });
 
-        let resp = request::<AuthResponse>(
-            QueryType::Auth,
-            &self.account_identifier,
-            &get_params,
-            None,
-            body,
-        )
-        .await?;
+        let resp = self
+            .connection
+            .request::<AuthResponse>(
+                QueryType::Auth,
+                &self.account_identifier,
+                &get_params,
+                None,
+                body,
+            )
+            .await?;
         log::debug!("Auth response: {:?}", resp);
 
         Ok(AuthTokens {

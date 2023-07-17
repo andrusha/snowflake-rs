@@ -1,8 +1,9 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
-use snowflake_odbc_api::{QueryResult, SnowflakeCertAuth, SnowflakeOdbcApi};
+use snowflake_odbc_api::{Connection, QueryResult, SnowflakeCertAuth, SnowflakeOdbcApi};
 use std::fs;
+use std::sync::Arc;
 
 extern crate snowflake_odbc_api;
 
@@ -10,7 +11,7 @@ extern crate snowflake_odbc_api;
 enum Output {
     Arrow,
     Json,
-    Query
+    Query,
 }
 
 #[derive(Parser, Debug)]
@@ -50,7 +51,7 @@ struct Args {
 
     #[arg(long)]
     #[arg(value_enum, default_value_t = Output::Arrow)]
-    output: Output
+    output: Output,
 }
 
 #[tokio::main]
@@ -60,7 +61,9 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let pem = fs::read(&args.private_key)?;
 
+    let connection = Arc::new(Connection::new()?);
     let auth = SnowflakeCertAuth::new(
+        Arc::clone(&connection),
         &pem,
         &args.username,
         &args.role,
@@ -69,7 +72,11 @@ async fn main() -> Result<()> {
         &args.database,
     )?;
 
-    let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
+    let api = SnowflakeOdbcApi::new(
+        Arc::clone(&connection),
+        Box::new(auth),
+        &args.account_identifier,
+    )?;
 
     match args.output {
         Output::Arrow => {

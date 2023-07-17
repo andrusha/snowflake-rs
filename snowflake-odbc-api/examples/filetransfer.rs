@@ -1,8 +1,9 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
-use snowflake_odbc_api::{QueryResult, SnowflakeCertAuth, SnowflakeOdbcApi};
+use snowflake_odbc_api::{Connection, QueryResult, SnowflakeCertAuth, SnowflakeOdbcApi};
 use std::fs;
+use std::sync::Arc;
 
 extern crate snowflake_odbc_api;
 
@@ -48,7 +49,10 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let pem = fs::read(&args.private_key)?;
 
+    let connection = Arc::new(Connection::new()?);
+
     let auth = SnowflakeCertAuth::new(
+        Arc::clone(&connection),
         &pem,
         &args.username,
         &args.role,
@@ -56,7 +60,11 @@ async fn main() -> Result<()> {
         &args.warehouse,
         &args.database,
     )?;
-    let api = SnowflakeOdbcApi::new(Box::new(auth), &args.account_identifier)?;
+    let api = SnowflakeOdbcApi::new(
+        Arc::clone(&connection),
+        Box::new(auth),
+        &args.account_identifier,
+    )?;
 
     let table_name = format!("{}.OSCAR_AGE_MALE", &args.schema);
 
@@ -66,9 +74,11 @@ async fn main() -> Result<()> {
     ).await?;
 
     log::info!("Uploading CSV file");
-    api.exec(
-        &format!("PUT file://{} @{}.%OSCAR_AGE_MALE;", &args.csv_path, &args.schema)
-    ).await?;
+    api.exec(&format!(
+        "PUT file://{} @{}.%OSCAR_AGE_MALE;",
+        &args.csv_path, &args.schema
+    ))
+    .await?;
 
     log::info!("Create temporary file format");
     api.exec(
@@ -76,14 +86,14 @@ async fn main() -> Result<()> {
     ).await?;
 
     log::info!("Copying into table");
-    api.exec(
-        &format!("COPY INTO {} FILE_FORMAT = CUSTOM_CSV_FORMAT;", table_name)
-    ).await?;
+    api.exec(&format!(
+        "COPY INTO {} FILE_FORMAT = CUSTOM_CSV_FORMAT;",
+        table_name
+    ))
+    .await?;
 
     log::info!("Querying for results");
-    let res = api.exec(
-        &format!("SELECT * FROM {};", table_name)
-    ).await?;
+    let res = api.exec(&format!("SELECT * FROM {};", table_name)).await?;
 
     match res {
         QueryResult::Arrow(a) => {

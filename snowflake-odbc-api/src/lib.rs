@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
@@ -11,23 +12,23 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 
-pub use auth::{SnowflakeCertAuth, SnowflakePasswordAuth};
+pub use crate::connection::Connection;
+pub use auth::{AuthError, SnowflakeAuth, SnowflakeCertAuth, SnowflakePasswordAuth};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
 
-use crate::auth::{AuthError, SnowflakeAuth};
-use crate::request::{QueryType, request};
+use crate::connection::QueryType;
 
 mod auth;
-mod request;
-mod query_response;
-mod put_response;
+mod connection;
 mod error_response;
+mod put_response;
+mod query_response;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
     #[error(transparent)]
-    RequestError(#[from] request::RequestError),
+    RequestError(#[from] connection::RequestError),
 
     #[error(transparent)]
     AuthError(#[from] AuthError),
@@ -57,7 +58,7 @@ pub enum SnowflakeApiError {
     ApiError(String),
 
     #[error("Snowflake API empty response could mean that query wasn't executed correctly or API call was faulty")]
-    EmptyResponse
+    EmptyResponse,
 }
 
 pub enum QueryResult {
@@ -66,17 +67,20 @@ pub enum QueryResult {
 }
 
 pub struct SnowflakeOdbcApi {
+    connection: Arc<Connection>,
     auth: Box<dyn SnowflakeAuth + Send>,
     account_identifier: String,
 }
 
 impl SnowflakeOdbcApi {
     pub fn new(
+        connection: Arc<Connection>,
         auth: Box<impl SnowflakeAuth + Send + 'static>,
         account_identifier: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let account_identifier = account_identifier.to_uppercase();
         Ok(SnowflakeOdbcApi {
+            connection,
             auth,
             account_identifier,
         })
@@ -165,7 +169,7 @@ impl SnowflakeOdbcApi {
 
         let resp = match resp {
             // processable response
-            QueryResponse::Result(r) => {r}
+            QueryResponse::Result(r) => r,
             // something went wrong
             QueryResponse::Empty(_) => return Err(SnowflakeApiError::EmptyResponse),
             QueryResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
@@ -174,7 +178,7 @@ impl SnowflakeOdbcApi {
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema?
         if resp.data.returned == 0 {
-            return Ok(Vec::new())
+            return Ok(Vec::new());
         }
 
         log::info!("Decoding Arrow");
@@ -203,12 +207,15 @@ impl SnowflakeOdbcApi {
         let body = serde_json::json!({
                 "sqlText": &sql,
                 "asyncExec": false,
+                // todo: increment as following queries within the session are made
                 "sequenceId": 1,
                 "isInternal": false
         });
 
-        let resp =
-            request::<R>(query_type, &self.account_identifier, &[], Some(&auth), body).await?;
+        let resp = self
+            .connection
+            .request::<R>(query_type, &self.account_identifier, &[], Some(&auth), body)
+            .await?;
 
         Ok(resp)
     }

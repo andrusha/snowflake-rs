@@ -4,7 +4,7 @@ use async_trait::async_trait;
 pub use cert::SnowflakeCertAuth;
 pub use password::SnowflakePasswordAuth;
 
-use crate::request;
+use crate::connection;
 
 mod cert;
 mod password;
@@ -16,7 +16,7 @@ pub enum AuthError {
     JwtError(#[from] snowflake_jwt::JwtError),
 
     #[error(transparent)]
-    RequestError(#[from] request::RequestError),
+    RequestError(#[from] connection::RequestError),
 }
 
 // todo: contain all the tokens and their expiration times
