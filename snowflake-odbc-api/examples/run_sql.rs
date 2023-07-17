@@ -85,6 +85,9 @@ async fn main() -> Result<()> {
                 QueryResult::Arrow(a) => {
                     println!("{}", pretty_format_batches(&a).unwrap());
                 }
+                QueryResult::Json(j) => {
+                    println!("{}", j.to_string());
+                }
                 QueryResult::Empty => {
                     println!("Query finished successfully")
                 }

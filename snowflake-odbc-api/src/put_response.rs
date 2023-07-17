@@ -22,7 +22,7 @@ pub struct S3PutData {
     pub upload_info: Info,
     #[serde(rename = "src_locations")]
     pub src_locations: Vec<String>,
-    pub parallel: u32,
+    pub parallel: u64,
     pub threshold: u64,
     #[serde(rename = "autoCompress")]
     pub auto_compress: bool,

@@ -11,17 +11,22 @@ pub struct ErrorResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct Data {
-    pub age: u32,
+    pub age: u64,
     #[serde(rename = "errorCode")]
     pub error_code: String,
     #[serde(rename = "internalError")]
     pub internal_error: bool,
-    pub line: i32,
-    pub pos: i32,
+
+    // come when query is invalid
+    pub line: Option<i64>,
+    pub pos: Option<i64>,
+
     #[serde(rename = "queryId")]
     pub query_id: String,
     #[serde(rename = "sqlState")]
     pub sql_state: String,
+
+    // todo: when this appears? what it means?
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: Option<String>,
 }

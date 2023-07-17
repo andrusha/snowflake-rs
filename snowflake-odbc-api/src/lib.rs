@@ -59,10 +59,14 @@ pub enum SnowflakeApiError {
 
     #[error("Snowflake API empty response could mean that query wasn't executed correctly or API call was faulty")]
     EmptyResponse,
+
+    #[error("No usable rowsets were included in the response")]
+    BrokenResponse,
 }
 
 pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
+    Json(serde_json::Value),
     Empty,
 }
 
@@ -95,7 +99,7 @@ impl SnowflakeOdbcApi {
 
             self.exec_put(sql).await.map(|_| QueryResult::Empty)
         } else {
-            self.exec_arrow(sql).await.map(QueryResult::Arrow)
+            self.exec_arrow(sql).await
         }
     }
 
@@ -161,7 +165,7 @@ impl SnowflakeOdbcApi {
             .await
     }
 
-    async fn exec_arrow(&self, sql: &str) -> Result<Vec<RecordBatch>, SnowflakeApiError> {
+    async fn exec_arrow(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let resp = self
             .run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
             .await?;
@@ -170,28 +174,34 @@ impl SnowflakeOdbcApi {
         let resp = match resp {
             // processable response
             QueryResponse::Result(r) => r,
-            // something went wrong
-            QueryResponse::Empty(_) => return Err(SnowflakeApiError::EmptyResponse),
             QueryResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
         };
 
         // if response was empty, base64 data is empty string
-        // todo: still return empty arrow batch with proper schema?
+        // todo: still return empty arrow batch with proper schema? (schema always included)
         if resp.data.returned == 0 {
-            return Ok(Vec::new());
+            log::info!("Got response with 0 rows");
+
+            return Ok(QueryResult::Empty);
+        } else if let Some(json) = resp.data.rowset {
+            log::info!("Got JSON response");
+
+            Ok(QueryResult::Json(json))
+        } else if let Some(base64) = resp.data.rowset_base64 {
+            log::info!("Got base64 encoded response");
+            let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
+            let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
+
+            // fixme: loads everything into memory
+            let mut res = Vec::new();
+            for batch in fr {
+                res.push(batch?);
+            }
+
+            Ok(QueryResult::Arrow(res))
+        } else {
+            Err(SnowflakeApiError::BrokenResponse)
         }
-
-        log::info!("Decoding Arrow");
-        let bytes = base64::engine::general_purpose::STANDARD.decode(resp.data.rowset_base64)?;
-        let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
-
-        // fixme: loads everything into memory
-        let mut res = Vec::new();
-        for batch in fr {
-            res.push(batch?);
-        }
-
-        Ok(res)
     }
 
     async fn run_sql<R: serde::de::DeserializeOwned>(
