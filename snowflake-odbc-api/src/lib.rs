@@ -12,7 +12,7 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 
-pub use crate::connection::Connection;
+pub use crate::connection::{Connection, RequestError};
 pub use session::{AuthError, Session};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
@@ -26,10 +26,13 @@ mod query_response;
 mod session;
 mod auth_response;
 
+
+// todo: create a builder
+
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
     #[error(transparent)]
-    RequestError(#[from] connection::RequestError),
+    RequestError(#[from] RequestError),
 
     #[error(transparent)]
     AuthError(#[from] AuthError),
