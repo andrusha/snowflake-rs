@@ -45,10 +45,11 @@ async fn main() -> Result<()> {
         connection,
         &args.username,
         &args.password,
-        &args.role,
+        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
-        &args.database,
+        Some(&args.database),
+        None,
     )?;
 
     let token = auth.get_master_token().await?;

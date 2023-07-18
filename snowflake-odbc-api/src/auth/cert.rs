@@ -7,14 +7,16 @@ use crate::auth::{AuthTokens, SnowflakeAuth};
 use crate::connection::{Connection, QueryType};
 use crate::AuthError;
 
+// todo: split warehouse-database-schema and username-role-key into its own structs
 pub struct SnowflakeCertAuth {
     connection: Arc<Connection>,
-    private_key_pem: Vec<u8>,
     account_identifier: String,
     warehouse: String,
-    database: String,
+    database: Option<String>,
+    schema: Option<String>,
     username: String,
-    role: String,
+    role: Option<String>,
+    private_key_pem: Vec<u8>,
 }
 
 impl SnowflakeCertAuth {
@@ -22,16 +24,21 @@ impl SnowflakeCertAuth {
         connection: Arc<Connection>,
         private_key_pem: &[u8],
         username: &str,
-        role: &str,
+        role: Option<&str>,
         account_identifier: &str,
         warehouse: &str,
-        database: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
     ) -> Result<Self, AuthError> {
-        let username = username.to_uppercase();
+        // uppercase everything as this is the convention
         let account_identifier = account_identifier.to_uppercase();
+
         let warehouse = warehouse.to_uppercase();
-        let database = database.to_uppercase();
-        let role = role.to_uppercase();
+        let database = database.map(str::to_uppercase);
+        let schema = schema.map(str::to_uppercase);
+
+        let username = username.to_uppercase();
+        let role = role.map(str::to_uppercase);
         let private_key_pem = private_key_pem.to_vec();
 
         Ok(SnowflakeCertAuth {
@@ -42,6 +49,7 @@ impl SnowflakeCertAuth {
             database,
             username,
             role,
+            schema,
         })
     }
 }
@@ -54,13 +62,20 @@ impl SnowflakeAuth for SnowflakeCertAuth {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let jwt_token = generate_jwt_token(&self.private_key_pem, &full_identifier)?;
 
-        let get_params = vec![
-            // todo: make database optional
-            ("databaseName", self.database.as_str()),
-            ("roleName", self.role.as_str()),
-            // ("schemaName", self.schema),
-            ("warehouse", self.warehouse.as_str()),
-        ];
+        // todo: extract this into common function
+        let mut get_params = vec![("warehouse", self.warehouse.as_str())];
+
+        if let Some(database) = &self.database {
+            get_params.push(("databaseName", database.as_str()));
+        }
+
+        if let Some(schema) = &self.schema {
+            get_params.push(("schemaName", schema.as_str()));
+        }
+
+        if let Some(role) = &self.role {
+            get_params.push(("roleName", role.as_str()))
+        }
 
         let body = serde_json::json!({
             "data": {

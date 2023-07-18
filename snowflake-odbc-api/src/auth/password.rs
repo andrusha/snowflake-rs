@@ -9,10 +9,11 @@ pub struct SnowflakePasswordAuth {
     connection: Arc<Connection>,
     account_identifier: String,
     warehouse: String,
-    database: String,
+    database: Option<String>,
+    schema: Option<String>,
     username: String,
     password: String,
-    role: String,
+    role: Option<String>,
 }
 
 impl SnowflakePasswordAuth {
@@ -20,17 +21,21 @@ impl SnowflakePasswordAuth {
         connection: Arc<Connection>,
         username: &str,
         password: &str,
-        role: &str,
+        role: Option<&str>,
         account_identifier: &str,
         warehouse: &str,
-        database: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
     ) -> Result<Self, AuthError> {
+        let account_identifier = account_identifier.to_uppercase();
+
+        let warehouse = warehouse.to_uppercase();
+        let database = database.map(str::to_uppercase);
+        let schema = schema.map(str::to_uppercase);
+
         let username = username.to_uppercase();
         let password = password.to_string();
-        let account_identifier = account_identifier.to_uppercase();
-        let warehouse = warehouse.to_uppercase();
-        let database = database.to_uppercase();
-        let role = role.to_uppercase();
+        let role = role.map(str::to_uppercase);
 
         Ok(SnowflakePasswordAuth {
             connection,
@@ -40,6 +45,7 @@ impl SnowflakePasswordAuth {
             username,
             password,
             role,
+            schema,
         })
     }
 }
@@ -49,13 +55,19 @@ impl SnowflakeAuth for SnowflakePasswordAuth {
     async fn get_master_token(&self) -> Result<AuthTokens, AuthError> {
         log::info!("Logging in using password authentication");
 
-        let get_params = vec![
-            // todo: make database optional
-            ("databaseName", self.database.as_str()),
-            ("roleName", self.role.as_str()),
-            // ("schemaName", self.schema),
-            ("warehouse", self.warehouse.as_str()),
-        ];
+        let mut get_params = vec![("warehouse", self.warehouse.as_str())];
+
+        if let Some(database) = &self.database {
+            get_params.push(("databaseName", database.as_str()));
+        }
+
+        if let Some(schema) = &self.schema {
+            get_params.push(("schemaName", schema.as_str()));
+        }
+
+        if let Some(role) = &self.role {
+            get_params.push(("roleName", role.as_str()))
+        }
 
         let body = serde_json::json!({
             "data": {

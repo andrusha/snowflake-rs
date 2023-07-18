@@ -66,10 +66,11 @@ async fn main() -> Result<()> {
         Arc::clone(&connection),
         &pem,
         &args.username,
-        &args.role,
+        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
-        &args.database,
+        Some(&args.database),
+        Some(&args.schema),
     )?;
 
     let api = SnowflakeOdbcApi::new(

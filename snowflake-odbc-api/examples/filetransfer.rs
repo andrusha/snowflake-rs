@@ -55,10 +55,11 @@ async fn main() -> Result<()> {
         Arc::clone(&connection),
         &pem,
         &args.username,
-        &args.role,
+        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
-        &args.database,
+        Some(&args.database),
+        Some(&args.schema),
     )?;
     let api = SnowflakeOdbcApi::new(
         Arc::clone(&connection),
@@ -66,41 +67,36 @@ async fn main() -> Result<()> {
         &args.account_identifier,
     )?;
 
-    let table_name = format!("{}.OSCAR_AGE_MALE", &args.schema);
-
     log::info!("Creating table");
     api.exec(
-        &format!("CREATE OR REPLACE TABLE {}(Index integer, Year integer, Age integer, Name varchar, Movie varchar);", table_name)
+        "CREATE OR REPLACE TABLE OSCAR_AGE_MALE(Index integer, Year integer, Age integer, Name varchar, Movie varchar);"
     ).await?;
 
     log::info!("Uploading CSV file");
-    api.exec(&format!(
-        "PUT file://{} @{}.%OSCAR_AGE_MALE;",
-        &args.csv_path, &args.schema
-    ))
-    .await?;
+    api.exec(&format!("PUT file://{} @%OSCAR_AGE_MALE;", &args.csv_path))
+        .await?;
 
     log::info!("Create temporary file format");
     api.exec(
-        "CREATE OR REPLACE TEMPORARY FILE FORMAT CUSTOM_CSV_FORMAT TYPE = CSV COMPRESSION = NONE FIELD_DELIMITER = ',' FILE_EXTENSION = 'csv' SKIP_HEADER = 1;"
+        "CREATE OR REPLACE TEMPORARY FILE FORMAT CUSTOM_CSV_FORMAT TYPE = CSV COMPRESSION = NONE FIELD_DELIMITER = ',' FILE_EXTENSION = 'csv' SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '\"';"
     ).await?;
 
     log::info!("Copying into table");
-    api.exec(&format!(
-        "COPY INTO {} FILE_FORMAT = CUSTOM_CSV_FORMAT;",
-        table_name
-    ))
-    .await?;
+    api.exec("COPY INTO OSCAR_AGE_MALE FILE_FORMAT = CUSTOM_CSV_FORMAT;")
+        .await?;
 
     log::info!("Querying for results");
-    let res = api.exec(&format!("SELECT * FROM {};", table_name)).await?;
+    let res = api.exec("SELECT * FROM OSCAR_AGE_MALE;").await?;
 
     match res {
         QueryResult::Arrow(a) => {
             println!("{}", pretty_format_batches(&a).unwrap());
         }
         QueryResult::Empty => {
-            println!("Nothing was returned")
+            println!("Nothing was returned");
+        }
+        QueryResult::Json(j) => {
+            println!("{}", j.to_string());
         }
     }
 
