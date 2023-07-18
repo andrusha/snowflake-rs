@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use snowflake_odbc_api::{Connection, SnowflakeAuth, SnowflakeCertAuth};
+use snowflake_odbc_api::{Connection, Session};
 use std::fs;
 use std::sync::Arc;
 
@@ -43,20 +43,20 @@ async fn main() -> Result<()> {
 
     let connection = Arc::new(Connection::new()?);
 
-    let auth = SnowflakeCertAuth::new(
+    let mut auth = Session::cert_auth(
         connection,
-        &pem,
-        &args.username,
-        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
         Some(&args.database),
         None,
-    )?;
+        &args.username,
+        Some(&args.role),
+        &pem,
+    );
 
-    let token = auth.get_master_token().await?;
+    let token = auth.get_token().await?;
 
-    println!("{:?}", token);
+    println!("{}", token);
 
     Ok(())
 }

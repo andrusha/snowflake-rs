@@ -1,7 +1,7 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
-use snowflake_odbc_api::{Connection, QueryResult, SnowflakeCertAuth, SnowflakeOdbcApi};
+use snowflake_odbc_api::{Connection, QueryResult, Session, SnowflakeOdbcApi};
 use std::fs;
 use std::sync::Arc;
 
@@ -51,19 +51,19 @@ async fn main() -> Result<()> {
 
     let connection = Arc::new(Connection::new()?);
 
-    let auth = SnowflakeCertAuth::new(
+    let session = Session::cert_auth(
         Arc::clone(&connection),
-        &pem,
-        &args.username,
-        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
         Some(&args.database),
         Some(&args.schema),
-    )?;
-    let api = SnowflakeOdbcApi::new(
+        &args.username,
+        Some(&args.role),
+        &pem,
+    );
+    let mut api = SnowflakeOdbcApi::new(
         Arc::clone(&connection),
-        Box::new(auth),
+        session,
         &args.account_identifier,
     )?;
 

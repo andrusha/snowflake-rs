@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use snowflake_odbc_api::{Connection, SnowflakeAuth, SnowflakePasswordAuth};
+use snowflake_odbc_api::{Connection, Session};
 use std::sync::Arc;
 
 extern crate snowflake_odbc_api;
@@ -41,18 +41,18 @@ async fn main() -> Result<()> {
 
     let connection = Arc::new(Connection::new()?);
 
-    let auth = SnowflakePasswordAuth::new(
+    let mut auth = Session::password_auth(
         connection,
-        &args.username,
-        &args.password,
-        Some(&args.role),
         &args.account_identifier,
         &args.warehouse,
         Some(&args.database),
         None,
-    )?;
+        &args.username,
+        Some(&args.role),
+        &args.password,
+    );
 
-    let token = auth.get_master_token().await?;
+    let token = auth.get_token().await?;
 
     println!("{:?}", token);
 

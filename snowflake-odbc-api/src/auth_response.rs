@@ -1,5 +1,6 @@
 use serde::Deserialize;
 
+// todo: keep session parameters accessible, encode in enum
 #[derive(Deserialize, Debug)]
 pub struct Parameter {
     pub name: String,

@@ -13,17 +13,18 @@ use regex::Regex;
 use thiserror::Error;
 
 pub use crate::connection::Connection;
-pub use auth::{AuthError, SnowflakeAuth, SnowflakeCertAuth, SnowflakePasswordAuth};
+pub use session::{AuthError, Session};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
 
 use crate::connection::QueryType;
 
-mod auth;
 mod connection;
 mod error_response;
 mod put_response;
 mod query_response;
+mod session;
+mod auth_response;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -72,25 +73,27 @@ pub enum QueryResult {
 
 pub struct SnowflakeOdbcApi {
     connection: Arc<Connection>,
-    auth: Box<dyn SnowflakeAuth + Send>,
+    session: Session,
     account_identifier: String,
+    sequence_id: u64,
 }
 
 impl SnowflakeOdbcApi {
     pub fn new(
         connection: Arc<Connection>,
-        auth: Box<impl SnowflakeAuth + Send + 'static>,
+        session: Session,
         account_identifier: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let account_identifier = account_identifier.to_uppercase();
         Ok(SnowflakeOdbcApi {
             connection,
-            auth,
+            session,
             account_identifier,
+            sequence_id: 0
         })
     }
 
-    pub async fn exec(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
         // put commands go through a different flow and result is side-effect
@@ -103,7 +106,7 @@ impl SnowflakeOdbcApi {
         }
     }
 
-    async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
+    async fn exec_put(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
             .run_sql::<PutResponse>(sql, QueryType::JsonQuery)
             .await?;
@@ -154,18 +157,18 @@ impl SnowflakeOdbcApi {
     }
 
     #[cfg(debug_assertions)]
-    pub async fn exec_response(&self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
+    pub async fn exec_response(&mut self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
         self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
             .await
     }
 
     #[cfg(debug_assertions)]
-    pub async fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
+    pub async fn exec_json(&mut self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
         self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery)
             .await
     }
 
-    async fn exec_arrow(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    async fn exec_arrow(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let resp = self
             .run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
             .await?;
@@ -205,20 +208,22 @@ impl SnowflakeOdbcApi {
     }
 
     async fn run_sql<R: serde::de::DeserializeOwned>(
-        &self,
+        &mut self,
         sql: &str,
         query_type: QueryType,
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql);
 
-        // todo: cache token, rotate when needed
-        let tokens = self.auth.get_master_token().await?;
-        let auth = format!("Snowflake Token=\"{}\"", &tokens.session_token);
+        let token = self.session.get_token().await?;
+        // expected by snowflake api for all requests within session to follow sequence id
+        // fixme: race condition
+        self.sequence_id += 1;
+
+        let auth = format!("Snowflake Token=\"{}\"", &token);
         let body = serde_json::json!({
                 "sqlText": &sql,
                 "asyncExec": false,
-                // todo: increment as following queries within the session are made
-                "sequenceId": 1,
+                "sequenceId": self.sequence_id,
                 "isInternal": false
         });
 
