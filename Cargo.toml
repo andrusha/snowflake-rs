@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "snowflake-jwt",
-    "snowflake-rest-api",
-    "snowflake-odbc-api"
+    "jwt",
+    "snowflake-api"
 ]

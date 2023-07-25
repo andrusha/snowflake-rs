@@ -1,18 +1,21 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
-use snowflake_odbc_api::{Connection, QueryResult, Session, SnowflakeOdbcApi};
 use std::fs;
-use std::sync::Arc;
+use snowflake_api::{QueryResult, SnowflakeApi};
 
-extern crate snowflake_odbc_api;
+extern crate snowflake_api;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to RSA PEM private key
     #[arg(long)]
-    private_key: String,
+    private_key: Option<String>,
+
+    /// Password if certificate is not present
+    #[arg(long)]
+    password: Option<String>,
 
     /// <account_identifier> in Snowflake format, uppercase
     #[arg(short, long)]
@@ -47,25 +50,35 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
-    let pem = fs::read(&args.private_key)?;
 
-    let connection = Arc::new(Connection::new()?);
-
-    let session = Session::cert_auth(
-        Arc::clone(&connection),
-        &args.account_identifier,
-        &args.warehouse,
-        Some(&args.database),
-        Some(&args.schema),
-        &args.username,
-        Some(&args.role),
-        &pem,
-    );
-    let mut api = SnowflakeOdbcApi::new(
-        Arc::clone(&connection),
-        session,
-        &args.account_identifier,
-    )?;
+    let mut api = match (&args.private_key, &args.password) {
+        (Some(pkey), None) => {
+            let pem = fs::read(pkey)?;
+            SnowflakeApi::with_certificate_auth(
+                &args.account_identifier,
+                &args.warehouse,
+                Some(&args.database),
+                Some(&args.schema),
+                &args.username,
+                Some(&args.role),
+                &pem,
+            )?
+        },
+        (None, Some(pwd)) => {
+            SnowflakeApi::with_password_auth(
+                &args.account_identifier,
+                &args.warehouse,
+                Some(&args.database),
+                Some(&args.schema),
+                &args.username,
+                Some(&args.role),
+                pwd,
+            )?
+        },
+        _ => {
+            panic!("Either private key path or password must be set")
+        }
+    };
 
     log::info!("Creating table");
     api.exec(

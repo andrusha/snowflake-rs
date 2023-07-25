@@ -12,8 +12,8 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 
-pub use crate::connection::{Connection, RequestError};
-pub use session::{AuthError, Session};
+use crate::connection::{Connection, RequestError};
+use session::{AuthError, Session};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
 
@@ -26,8 +26,6 @@ mod query_response;
 mod session;
 mod auth_response;
 
-
-// todo: create a builder
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -74,25 +72,73 @@ pub enum QueryResult {
     Empty,
 }
 
-pub struct SnowflakeOdbcApi {
+pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
     account_identifier: String,
     sequence_id: u64,
 }
 
-impl SnowflakeOdbcApi {
-    pub fn new(
-        connection: Arc<Connection>,
-        session: Session,
+impl SnowflakeApi {
+    pub fn with_password_auth(
         account_identifier: &str,
+        warehouse: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+        password: &str,
     ) -> Result<Self, SnowflakeApiError> {
+        let connection = Arc::new(Connection::new()?);
+
+        let session = Session::password_auth(
+            Arc::clone(&connection),
+            account_identifier,
+            warehouse,
+            database,
+            schema,
+            username,
+            role,
+            password,
+        );
+
         let account_identifier = account_identifier.to_uppercase();
-        Ok(SnowflakeOdbcApi {
-            connection,
+        Ok(SnowflakeApi {
+            connection: Arc::clone(&connection),
             session,
             account_identifier,
-            sequence_id: 0
+            sequence_id: 0,
+        })
+    }
+
+    pub fn with_certificate_auth(
+        account_identifier: &str,
+        warehouse: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+        private_key_pem: &[u8],
+    ) -> Result<Self, SnowflakeApiError> {
+        let connection = Arc::new(Connection::new()?);
+
+        let session = Session::cert_auth(
+            Arc::clone(&connection),
+            account_identifier,
+            warehouse,
+            database,
+            schema,
+            username,
+            role,
+            private_key_pem,
+        );
+
+        let account_identifier = account_identifier.to_uppercase();
+        Ok(SnowflakeApi {
+            connection: Arc::clone(&connection),
+            session,
+            account_identifier,
+            sequence_id: 0,
         })
     }
 

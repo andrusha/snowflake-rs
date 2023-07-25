@@ -16,3 +16,5 @@ time = "0.3.20"
 
 [dev-dependencies]
 anyhow = "1"
+ureq = { version = "2", features = ["json"] }
+clap = { version = "4", features = ["derive"] }

@@ -1,5 +1,5 @@
 [package]
-name = "snowflake-odbc-api"
+name = "snowflake-api"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 thiserror = "1"
-snowflake-jwt = { path = "../snowflake-jwt" }
+snowflake-jwt = { path = "../jwt" }
 reqwest = { version = "0.11", features = ["json"] }
 log = "0.4"
 serde_json = "1"
