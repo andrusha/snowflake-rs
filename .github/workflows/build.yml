@@ -10,10 +10,7 @@ jobs:
 
   check:
     name: Check
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -26,25 +23,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-
-  test:
-    name: Test
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
 
   lints:
     name: Lints
@@ -69,3 +47,82 @@ jobs:
         with:
           command: clippy
           args: -- -D warnings
+
+  windows-test:
+    name: windows-vcpkg
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - run: vcpkg install openssl:x64-windows-static-md
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  macos-test:
+    name: macos-homebrew
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - i686-unknown-linux-gnu
+          - arm-unknown-linux-gnueabihf
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    env:
+      OPENSSL_DIR: /opt/openssl
+      CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+      CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_AR: arm-linux-gnueabihf-ar
+      CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install packages
+        run: |
+          case "${{ matrix.target }}" in
+          "x86_64-unknown-linux-gnu")
+            packages="openssl-dev"
+            ;;
+          "i686-unknown-linux-gnu")
+            packages="gcc-multilib g++-multilib openssl-dev"
+            ;;
+          "arm-unknown-linux-gnueabihf")
+            packages="gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user"
+            ;;
+          esac
+
+          sudo apt-get update
+          sudo apt-get install -y openssl-dev
+      - run: |
+          echo "RUST_TEST_THREADS=1" >> $GITHUB_ENV
+          echo BINDGEN_EXTRA_CLANG_ARGS="--sysroot /usr/arm-linux-gnueabihf" >> $GITHUB_ENV
+        if: matrix.target == 'arm-unknown-linux-gnueabihf'
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
