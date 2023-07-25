@@ -48,7 +48,10 @@ fn main() -> Result<()> {
 
     println!("{}", &args.sql);
 
-    let url = format!("https://{}.snowflakecomputing.com/api/v2/statements", &args.account_identifier);
+    let url = format!(
+        "https://{}.snowflakecomputing.com/api/v2/statements",
+        &args.account_identifier
+    );
     let auth = format!("Bearer {}", &jwt);
     let resp = ureq::post(&url)
         .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
@@ -69,7 +72,10 @@ fn main() -> Result<()> {
         }
         Err(ureq::Error::Status(code, r)) => {
             let rstr = r.into_string().context("consuming response")?;
-            println!("failed to execute statement, server replied with {}, {}", code, rstr);
+            println!(
+                "failed to execute statement, server replied with {}, {}",
+                code, rstr
+            );
         }
         Err(ureq::Error::Transport(tr)) => {
             println!("transport error: {:?}", tr);

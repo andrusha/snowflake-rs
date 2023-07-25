@@ -12,25 +12,24 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 
-use crate::connection::{Connection, RequestError};
-use session::{AuthError, Session};
+use crate::connection::{Connection, ConnectionError};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
+use session::{AuthError, Session};
 
 use crate::connection::QueryType;
 
+mod auth_response;
 mod connection;
 mod error_response;
 mod put_response;
 mod query_response;
 mod session;
-mod auth_response;
-
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
     #[error(transparent)]
-    RequestError(#[from] RequestError),
+    RequestError(#[from] ConnectionError),
 
     #[error(transparent)]
     AuthError(#[from] AuthError),
@@ -173,7 +172,7 @@ impl SnowflakeApi {
         let info = r.data.stage_info;
         let (bucket_name, bucket_path) = info
             .location
-            .split_once("/")
+            .split_once('/')
             .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
 
         let s3 = AmazonS3Builder::new()
@@ -234,7 +233,7 @@ impl SnowflakeApi {
         if resp.data.returned == 0 {
             log::info!("Got response with 0 rows");
 
-            return Ok(QueryResult::Empty);
+            Ok(QueryResult::Empty)
         } else if let Some(json) = resp.data.rowset {
             log::info!("Got JSON response");
 

@@ -1,6 +1,8 @@
 use crate::error_response::ErrorResponse;
 use serde::Deserialize;
 
+// Mostly getting big QueryResponseInt, no need to box it
+#[allow(clippy::large_enum_variant)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum QueryResponse {

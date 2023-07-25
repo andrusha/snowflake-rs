@@ -7,22 +7,20 @@ use crate::auth_response::AuthResponse;
 use crate::connection;
 use crate::connection::{Connection, QueryType};
 
-
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error(transparent)]
     JwtError(#[from] snowflake_jwt::JwtError),
 
     #[error(transparent)]
-    RequestError(#[from] connection::RequestError),
+    RequestError(#[from] connection::ConnectionError),
 
     #[error("Password auth was requested, but password wasn't provided")]
     MissingPassword,
 
     #[error("Certificate auth was requested, but certificate wasn't provided")]
-    MissingCertificate
+    MissingCertificate,
 }
-
 
 pub struct AuthToken {
     pub session_token: String,
@@ -40,7 +38,6 @@ impl AuthToken {
             Duration::from_secs(validity_in_seconds as u64)
         };
         let issued_on = Instant::now();
-
 
         AuthToken {
             session_token,
@@ -83,6 +80,8 @@ pub struct Session {
 
 // todo: make builder
 impl Session {
+    // fixme: add builder or introduce structs
+    #[allow(clippy::too_many_arguments)]
     pub fn cert_auth(
         connection: Arc<Connection>,
         account_identifier: &str,
@@ -119,6 +118,8 @@ impl Session {
         }
     }
 
+    // fixme: add builder or introduce structs
+    #[allow(clippy::too_many_arguments)]
     pub fn password_auth(
         connection: Arc<Connection>,
         account_identifier: &str,
@@ -179,8 +180,11 @@ impl Session {
 
     fn cert_request_body(&self) -> Result<serde_json::Value, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
-        let private_key_pem = self.private_key_pem.as_ref().ok_or(AuthError::MissingCertificate)?;
-        let jwt_token = generate_jwt_token(&private_key_pem, &full_identifier)?;
+        let private_key_pem = self
+            .private_key_pem
+            .as_ref()
+            .ok_or(AuthError::MissingCertificate)?;
+        let jwt_token = generate_jwt_token(private_key_pem, &full_identifier)?;
 
         // todo: can refactor common parts from both bodies?
         Ok(serde_json::json!({
@@ -258,6 +262,9 @@ impl Session {
             .await?;
         log::debug!("Auth response: {:?}", resp);
 
-        Ok(AuthToken::new(&resp.data.token, resp.data.validity_in_seconds))
+        Ok(AuthToken::new(
+            &resp.data.token,
+            resp.data.validity_in_seconds,
+        ))
     }
 }

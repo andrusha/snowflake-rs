@@ -5,18 +5,18 @@ use url::Url;
 use uuid::Uuid;
 
 #[derive(Error, Debug)]
-pub enum RequestError {
+pub enum ConnectionError {
     #[error(transparent)]
     RequestError(#[from] reqwest::Error),
 
     #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
+    UrlParsing(#[from] url::ParseError),
 
     #[error(transparent)]
-    DeserializationError(#[from] serde_json::Error),
+    Deserialization(#[from] serde_json::Error),
 
     #[error(transparent)]
-    InvalidHeaderError(#[from] header::InvalidHeaderValue),
+    InvalidHeader(#[from] header::InvalidHeaderValue),
 }
 
 struct QueryContext {
@@ -56,7 +56,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new() -> Result<Self, RequestError> {
+    pub fn new() -> Result<Self, ConnectionError> {
         // use builder to fail safely, unlike client new
         let client = ClientBuilder::new()
             .user_agent("Rust/0.0.1")
@@ -77,7 +77,7 @@ impl Connection {
         extra_get_params: &[(&str, &str)],
         auth: Option<&str>,
         body: impl serde::Serialize,
-    ) -> Result<R, RequestError> {
+    ) -> Result<R, ConnectionError> {
         let context = query_type.query_context();
 
         // todo: increment subsequent request ids (on retry?)

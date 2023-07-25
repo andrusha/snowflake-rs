@@ -1,6 +1,8 @@
 use crate::error_response::ErrorResponse;
 use serde::Deserialize;
 
+// Mostly getting big S3PutResponse, no point in boxing it
+#[allow(clippy::large_enum_variant)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum PutResponse {

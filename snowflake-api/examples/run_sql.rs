@@ -1,12 +1,11 @@
 extern crate snowflake_api;
 
-use std::fs;
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
+use std::fs;
 
 use snowflake_api::{QueryResult, SnowflakeApi};
-
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum Output {
@@ -77,18 +76,16 @@ async fn main() -> Result<()> {
                 Some(&args.role),
                 &pem,
             )?
-        },
-        (None, Some(pwd)) => {
-            SnowflakeApi::with_password_auth(
-                &args.account_identifier,
-                &args.warehouse,
-                Some(&args.database),
-                Some(&args.schema),
-                &args.username,
-                Some(&args.role),
-                pwd,
-            )?
-        },
+        }
+        (None, Some(pwd)) => SnowflakeApi::with_password_auth(
+            &args.account_identifier,
+            &args.warehouse,
+            Some(&args.database),
+            Some(&args.schema),
+            &args.username,
+            Some(&args.role),
+            pwd,
+        )?,
         _ => {
             panic!("Either private key path or password must be set")
         }
