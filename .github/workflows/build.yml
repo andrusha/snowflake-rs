@@ -58,7 +58,9 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: vcpkg install openssl:x64-windows-static-md
+      - run: |
+          vcpkg update
+          vcpkg install openssl:x64-windows-static-md
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
