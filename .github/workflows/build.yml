@@ -92,7 +92,6 @@ jobs:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
     env:
-      OPENSSL_DIR: /opt/openssl
       CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
       CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_AR: arm-linux-gnueabihf-ar
       CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
