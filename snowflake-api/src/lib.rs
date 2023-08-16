@@ -1,6 +1,6 @@
 #![doc(
-issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
-test(no_crate_inject)
+    issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
+    test(no_crate_inject)
 )]
 #![doc = include_str ! ("../README.md")]
 
