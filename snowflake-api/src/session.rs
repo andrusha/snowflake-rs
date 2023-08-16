@@ -60,7 +60,11 @@ enum AuthType {
     Password,
 }
 
+/// Requests, caches, and renews authentication tokens.
+/// Tokens are given as response to creating new session in Snowflake. Session persists
+/// the configuration state and temporary objects (tables, procedures, etc).
 // todo: split warehouse-database-schema and username-role-key into its own structs
+// todo: close session after object is dropped
 pub struct Session {
     connection: Arc<Connection>,
 
@@ -80,6 +84,7 @@ pub struct Session {
 
 // todo: make builder
 impl Session {
+    /// Authenticate using private certificate and JWT
     // fixme: add builder or introduce structs
     #[allow(clippy::too_many_arguments)]
     pub fn cert_auth(
@@ -118,6 +123,7 @@ impl Session {
         }
     }
 
+    /// Authenticate using password
     // fixme: add builder or introduce structs
     #[allow(clippy::too_many_arguments)]
     pub fn password_auth(
@@ -155,6 +161,8 @@ impl Session {
         }
     }
 
+    /// Get cached token or request a new one if old one has expired.
+    // todo: do token exchange instead of recreating a session as it loses temporary objects
     pub async fn get_token(&mut self) -> Result<String, AuthError> {
         if let Some(token) = self.auth_token_cached.as_ref().filter(|at| at.is_expired()) {
             return Ok(token.session_token.clone());

@@ -1,3 +1,9 @@
+#![doc(
+issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
+test(no_crate_inject)
+)]
+#![doc = include_str ! ("../README.md")]
+
 use base64::Engine;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use openssl::rsa::Rsa;

@@ -1,3 +1,9 @@
+#![doc(
+issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
+test(no_crate_inject)
+)]
+#![doc = include_str ! ("../README.md")]
+
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -71,6 +77,7 @@ pub enum QueryResult {
     Empty,
 }
 
+/// Snowflake API, keeps connection pool and manages session for you
 pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
@@ -79,6 +86,7 @@ pub struct SnowflakeApi {
 }
 
 impl SnowflakeApi {
+    /// Initialize object with password auth. Authentication happens on the first request.
     pub fn with_password_auth(
         account_identifier: &str,
         warehouse: &str,
@@ -110,6 +118,7 @@ impl SnowflakeApi {
         })
     }
 
+    /// Initialize object with private certificate auth. Authentication happens on the first request.
     pub fn with_certificate_auth(
         account_identifier: &str,
         warehouse: &str,
@@ -141,6 +150,8 @@ impl SnowflakeApi {
         })
     }
 
+    /// Execute a single query against API.
+    /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
     pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
@@ -204,12 +215,14 @@ impl SnowflakeApi {
         Ok(())
     }
 
+    /// Useful for debugging to get the straight query response
     #[cfg(debug_assertions)]
     pub async fn exec_response(&mut self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
         self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
             .await
     }
 
+    /// Useful for debugging to get raw JSON response
     #[cfg(debug_assertions)]
     pub async fn exec_json(&mut self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
         self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery)

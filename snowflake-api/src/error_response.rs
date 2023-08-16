@@ -1,5 +1,6 @@
 use serde::Deserialize;
 
+/// If query has soft failure on the Snowflake-side this structure will be returned
 #[derive(Deserialize, Debug)]
 pub struct ErrorResponse {
     pub code: String,

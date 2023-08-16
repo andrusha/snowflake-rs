@@ -19,6 +19,8 @@ pub enum ConnectionError {
     InvalidHeader(#[from] header::InvalidHeaderValue),
 }
 
+/// Container for query parameters
+/// This API has different endpoints and MIME types for different requests
 struct QueryContext {
     path: &'static str,
     accept_mime: &'static str,
@@ -49,9 +51,10 @@ impl QueryType {
     }
 }
 
-/// Keeps connection pool
+/// Connection pool
+/// Minimal session will have at least 2 requests - login and query
 pub struct Connection {
-    // no need for Arc as it's already inside
+    // no need for Arc as it's already inside the reqwest client
     client: Client,
 }
 
@@ -68,8 +71,10 @@ impl Connection {
         Ok(Connection { client })
     }
 
+    /// Perform request of given query type with extra body or parameters
     // todo: implement retry logic
     // todo: implement soft error handling
+    // todo: is there better way to not repeat myself?
     pub async fn request<R: serde::de::DeserializeOwned>(
         &self,
         query_type: QueryType,

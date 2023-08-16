@@ -1,6 +1,6 @@
 # snowflake-rs
 
-Snowflake API library.
+Snowflake library for undocumented public API. If you want to query documented public [SQL REST API](https://docs.snowflake.com/developer-guide/sql-api/intro) use [snowflake-jwt](https://crates.io/crates/snowflake-jwt) together with your favourite request library, see [./jwt/examples](../jwt/examples) for how it's done.
 
 ## Features
 
