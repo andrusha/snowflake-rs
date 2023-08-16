@@ -31,7 +31,7 @@ In your Cargo.toml:
 
 ```toml
 [dependencies]
-snowflake-jwt = "0.1.0"
+snowflake-api = "0.1.0"
 ```
 
 Check [examples](./examples) for working programs using the library.
