@@ -14,8 +14,8 @@ snowflake-jwt = "0.1.0"
 Check [examples](./examples) for working programs using the library.
 
 ```rust
-use anyhow;
-use fs;
+use anyhow::Result;
+use std::fs;
 use snowflake_jwt;
 
 fn get_token(private_key_path: &str, account_identifier: &str, username: &str) -> Result<String> {

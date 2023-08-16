@@ -42,7 +42,7 @@ use anyhow::Result;
 use snowflake_api::{QueryResult, SnowflakeApi};
 
 async fn run_query(sql: &str) -> Result<QueryResult> {
-    let api = SnowflakeApi::with_password_auth(
+    let mut api = SnowflakeApi::with_password_auth(
         "ACCOUNT_IDENTIFIER",
         "WAREHOUSE",
         Some("DATABASE"),
@@ -51,8 +51,9 @@ async fn run_query(sql: &str) -> Result<QueryResult> {
         Some("ROLE"),
         "PASSWORD",
     )?;
-
-    api.exec(sql).await.into()
+    let res = api.exec(sql).await?;
+    
+    Ok(res)
 }
 ```
 
