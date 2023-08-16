@@ -2,8 +2,14 @@
 name = "snowflake-api"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Snowflake API bindings"
+authors = ["Andrew Korzhuev <korzhuev@andrusha.me>"]
+repository = "https://github.com/mycelial/snowflake-rs"
+documentation = "http://docs.rs/sqlite-api/"
+keywords = ["snowflake", "database", "api"]
+categories = ["database", "api-bindings"]
+readme = "README.md"
+license = "Apache-2.0"
 
 [dependencies]
 thiserror = "1"

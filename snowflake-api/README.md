@@ -1,0 +1,61 @@
+# snowflake-rs
+
+Snowflake API library.
+
+## Features
+
+Since it does a lot of I/O the library is async-only, examples use [tokio](https://tokio.rs/) as a runtime.
+
+- [x] Single statements
+- [ ] Multiple statements
+- [x] Query results in [Arrow](https://arrow.apache.org/)
+- [x] Password auth
+- [x] Certificate auth
+- [x] PUT support
+- [ ] GET support
+- [x] AWS integration
+- [ ] GCloud integration
+- [ ] Azure integration
+
+## Why
+
+Snowflake has 2 public APIs, one is [SQL REST API](https://docs.snowflake.com/developer-guide/sql-api/intro), which is limited in its support of [PUT](https://docs.snowflake.com/en/sql-reference/sql/put) and [GET](https://docs.snowflake.com/en/sql-reference/sql/get) statements and another undocumented API, which is used by official [Drivers](https://docs.snowflake.com/en/developer-guide/drivers) with the support for both.
+
+This implementation emulates [gosnowflake](https://github.com/snowflakedb/gosnowflake) library, as each official driver comes with a different set of internal flags and defaults (which are selected by `CLIENT_APP_ID`) the Go implementation is the only one currently outputting Arrow by-default.
+
+We've chosen not to generate bindings for C/C++ [libsnowflakeclient](https://github.com/snowflakedb/libsnowflakeclient) library (which backs ODBC driver) as it is in active development and building it under macOS M1 is bigger effort than writing our own API wrapper.
+
+## Usage
+
+In your Cargo.toml:
+
+```toml
+[dependencies]
+snowflake-jwt = "0.1.0"
+```
+
+Check [examples](./examples) for working programs using the library.
+
+
+```rust
+use anyhow::Result;
+use snowflake_api::{QueryResult, SnowflakeApi};
+
+async fn run_query(sql: &str) -> Result<QueryResult> {
+    let api = SnowflakeApi::with_password_auth(
+        "ACCOUNT_IDENTIFIER",
+        "WAREHOUSE",
+        Some("DATABASE"),
+        Some("SCHEMA"),
+        "USERNAME",
+        Some("ROLE"),
+        "PASSWORD",
+    )?;
+
+    api.exec(sql).await.into()
+}
+```
+
+## PUT / GET
+
+[PUT](https://docs.snowflake.com/en/sql-reference/sql/put)/[GET](https://docs.snowflake.com/en/sql-reference/sql/get) statements allow you to access Snowflake-owned storage instead of provisioning your own when doing [COPY INTO](https://docs.snowflake.com/en/sql-reference/sql/copy-into-table). Storage provider depends on which cloud your Snowflake account was provisioned in, hence the need to support multiple cloud backends.
