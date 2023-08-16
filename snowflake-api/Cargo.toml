@@ -1,6 +1,6 @@
 [package]
 name = "snowflake-api"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Snowflake API bindings"
 authors = ["Andrew Korzhuev <korzhuev@andrusha.me>"]
@@ -13,7 +13,7 @@ license = "Apache-2.0"
 
 [dependencies]
 thiserror = "1"
-snowflake-jwt = "0.1.0"
+snowflake-jwt = "0.1.1"
 reqwest = { version = "0.11", features = ["json"] }
 log = "0.4"
 serde_json = "1"
