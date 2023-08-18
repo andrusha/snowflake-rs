@@ -98,12 +98,12 @@ impl Connection {
     ) -> Result<R, ConnectionError> {
         let context = query_type.query_context();
 
-        // todo: increment subsequent request ids (on retry?)
-        let request_id = Uuid::now_v1(&[0, 0, 0, 0, 0, 0]);
+        let request_id = Uuid::new_v4();
         let request_guid = Uuid::new_v4();
         let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
 
         let client_start_time = client_start_time.to_string();
+        // fixme: update uuid's on the retry
         let request_id = request_id.to_string();
         let request_guid = request_guid.to_string();
 
