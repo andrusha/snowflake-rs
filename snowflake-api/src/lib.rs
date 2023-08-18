@@ -1,8 +1,9 @@
 #![doc(
-    issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
-    test(no_crate_inject)
+issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
+test(no_crate_inject)
 )]
-#![doc = include_str ! ("../README.md")]
+#![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::io;
 use std::path::Path;
@@ -18,11 +19,12 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 
-use crate::connection::{Connection, ConnectionError};
 use put_response::{PutResponse, S3PutResponse};
 use query_response::QueryResponse;
+pub use runtime::{AsyncRuntime, DefaultRuntime};
 use session::{AuthError, Session};
 
+use crate::connection::{Connection, ConnectionError};
 use crate::connection::QueryType;
 
 mod auth_response;
@@ -30,6 +32,7 @@ mod connection;
 mod error_response;
 mod put_response;
 mod query_response;
+mod runtime;
 mod session;
 
 #[derive(Error, Debug)]
@@ -81,14 +84,16 @@ pub enum QueryResult {
 }
 
 /// Snowflake API, keeps connection pool and manages session for you
-pub struct SnowflakeApi {
-    connection: Arc<Connection>,
-    session: Session,
+pub struct SnowflakeApi<R = DefaultRuntime> {
+    connection: Arc<Connection<R>>,
+    session: Session<R>,
     account_identifier: String,
     sequence_id: u64,
 }
 
-impl SnowflakeApi {
+impl<R> SnowflakeApi<R>
+    where
+        R: AsyncRuntime {
     /// Initialize object with password auth. Authentication happens on the first request.
     pub fn with_password_auth(
         account_identifier: &str,
@@ -271,11 +276,11 @@ impl SnowflakeApi {
         }
     }
 
-    async fn run_sql<R: serde::de::DeserializeOwned>(
+    async fn run_sql<DS: serde::de::DeserializeOwned>(
         &mut self,
         sql: &str,
         query_type: QueryType,
-    ) -> Result<R, SnowflakeApiError> {
+    ) -> Result<DS, SnowflakeApiError> {
         log::debug!("Executing: {}", sql);
 
         let token = self.session.get_token().await?;
@@ -293,7 +298,7 @@ impl SnowflakeApi {
 
         let resp = self
             .connection
-            .request::<R>(query_type, &self.account_identifier, &[], Some(&auth), body)
+            .request::<DS>(query_type, &self.account_identifier, &[], Some(&auth), body)
             .await?;
 
         Ok(resp)

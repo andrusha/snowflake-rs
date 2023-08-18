@@ -10,6 +10,13 @@ keywords = ["snowflake", "database", "api"]
 categories = ["database", "api-bindings"]
 readme = "README.md"
 license = "Apache-2.0"
+exclude = ["Cargo.lock"]
+
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
+naive-runtime = ["futures-executor", "futures-channel", "futures-util"]
+async-std = ["dep:async-std"]
 
 [dependencies]
 thiserror = "1"
@@ -25,10 +32,22 @@ base64 = "0.21"
 regex = "1"
 object_store = { version = "0.6", features = ["aws"] }
 async-trait = "0.1"
+retry-policies = "0.2"
+tokio = { version = "1", features = ["time"], optional = true }
+futures-executor = { version = "0.3", optional = true }
+futures-channel = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true }
+async-std = { version = "1.9", optional = true }
 
 [dev-dependencies]
 anyhow = "1"
 pretty_env_logger = "0.5.0"
 clap = { version = "4", features = ["derive"] }
 arrow = { version = "42", features = ["prettyprint"] }
-tokio = { version = "1", features=["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+smol = "1"
+futures = "0.3"
+
+[package.metadata.docs.rs]
+features = ["naive-runtime", "async-std", "tokio"]
+rustdoc-args = ["--cfg", "docsrs"]

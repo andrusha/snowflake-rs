@@ -1,7 +1,7 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
-use snowflake_api::{QueryResult, SnowflakeApi};
+use snowflake_api::{QueryResult, SnowflakeApi, DefaultRuntime};
 use std::fs;
 
 extern crate snowflake_api;
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let mut api = match (&args.private_key, &args.password) {
+    let mut api: SnowflakeApi<DefaultRuntime> = match (&args.private_key, &args.password) {
         (Some(pkey), None) => {
             let pem = fs::read(pkey)?;
             SnowflakeApi::with_certificate_auth(

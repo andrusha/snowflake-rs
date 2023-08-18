@@ -1,8 +1,12 @@
+use std::marker::PhantomData;
+
+use reqwest::{Client, ClientBuilder, header};
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{header, Client, ClientBuilder};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
+
+use crate::{AsyncRuntime, DefaultRuntime};
 
 #[derive(Error, Debug)]
 pub enum ConnectionError {
@@ -53,12 +57,15 @@ impl QueryType {
 
 /// Connection pool
 /// Minimal session will have at least 2 requests - login and query
-pub struct Connection {
+pub struct Connection<R = DefaultRuntime> {
     // no need for Arc as it's already inside the reqwest client
     client: Client,
+    _runtime: PhantomData<R>,
 }
 
-impl Connection {
+impl<R> Connection<R>
+    where
+        R: AsyncRuntime {
     pub fn new() -> Result<Self, ConnectionError> {
         // use builder to fail safely, unlike client new
         let client = ClientBuilder::new()
@@ -68,21 +75,24 @@ impl Connection {
             .connection_verbose(true)
             .build()?;
 
-        Ok(Connection { client })
+        Ok(Connection {
+            client,
+            _runtime: PhantomData,
+        })
     }
 
     /// Perform request of given query type with extra body or parameters
     // todo: implement retry logic
     // todo: implement soft error handling
     // todo: is there better way to not repeat myself?
-    pub async fn request<R: serde::de::DeserializeOwned>(
+    pub async fn request<DS: serde::de::DeserializeOwned>(
         &self,
         query_type: QueryType,
         account_identifier: &str,
         extra_get_params: &[(&str, &str)],
         auth: Option<&str>,
         body: impl serde::Serialize,
-    ) -> Result<R, ConnectionError> {
+    ) -> Result<DS, ConnectionError> {
         let context = query_type.query_context();
 
         // todo: increment subsequent request ids (on retry?)
@@ -128,6 +138,6 @@ impl Connection {
             .send()
             .await?;
 
-        Ok(resp.json::<R>().await?)
+        Ok(resp.json::<DS>().await?)
     }
 }

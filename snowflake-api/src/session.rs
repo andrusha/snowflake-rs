@@ -1,11 +1,13 @@
-use snowflake_jwt::generate_jwt_token;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use snowflake_jwt::generate_jwt_token;
 use thiserror::Error;
 
+use crate::{AsyncRuntime, connection};
 use crate::auth_response::AuthResponse;
-use crate::connection;
 use crate::connection::{Connection, QueryType};
+use crate::DefaultRuntime;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -65,8 +67,8 @@ enum AuthType {
 /// the configuration state and temporary objects (tables, procedures, etc).
 // todo: split warehouse-database-schema and username-role-key into its own structs
 // todo: close session after object is dropped
-pub struct Session {
-    connection: Arc<Connection>,
+pub struct Session<R = DefaultRuntime> {
+    connection: Arc<Connection<R>>,
 
     auth_token_cached: Option<AuthToken>,
     auth_type: AuthType,
@@ -83,12 +85,14 @@ pub struct Session {
 }
 
 // todo: make builder
-impl Session {
+impl<R> Session<R>
+    where
+        R: AsyncRuntime {
     /// Authenticate using private certificate and JWT
     // fixme: add builder or introduce structs
     #[allow(clippy::too_many_arguments)]
     pub fn cert_auth(
-        connection: Arc<Connection>,
+        connection: Arc<Connection<R>>,
         account_identifier: &str,
         warehouse: &str,
         database: Option<&str>,
@@ -127,7 +131,7 @@ impl Session {
     // fixme: add builder or introduce structs
     #[allow(clippy::too_many_arguments)]
     pub fn password_auth(
-        connection: Arc<Connection>,
+        connection: Arc<Connection<R>>,
         account_identifier: &str,
         warehouse: &str,
         database: Option<&str>,
