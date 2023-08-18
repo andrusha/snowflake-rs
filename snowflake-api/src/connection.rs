@@ -1,5 +1,8 @@
+use reqwest::header;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{header, Client, ClientBuilder};
+use reqwest_middleware::ClientWithMiddleware;
+use reqwest_retry::policies::ExponentialBackoff;
+use reqwest_retry::RetryTransientMiddleware;
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -8,6 +11,9 @@ use uuid::Uuid;
 pub enum ConnectionError {
     #[error(transparent)]
     RequestError(#[from] reqwest::Error),
+
+    #[error(transparent)]
+    RequestMiddlewareError(#[from] reqwest_middleware::Error),
 
     #[error(transparent)]
     UrlParsing(#[from] url::ParseError),
@@ -55,24 +61,31 @@ impl QueryType {
 /// Minimal session will have at least 2 requests - login and query
 pub struct Connection {
     // no need for Arc as it's already inside the reqwest client
-    client: Client,
+    client: ClientWithMiddleware,
 }
 
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
+        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+
         // use builder to fail safely, unlike client new
-        let client = ClientBuilder::new()
+        let client = reqwest::ClientBuilder::new()
             .user_agent("Rust/0.0.1")
-            .referer(false)
-            // fixme: disable later
-            .connection_verbose(true)
-            .build()?;
+            .referer(false);
+
+        #[cfg(debug_assertions)]
+        let client = client.connection_verbose(true);
+
+        let client = client.build()?;
+
+        let client = reqwest_middleware::ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .build();
 
         Ok(Connection { client })
     }
 
     /// Perform request of given query type with extra body or parameters
-    // todo: implement retry logic
     // todo: implement soft error handling
     // todo: is there better way to not repeat myself?
     pub async fn request<R: serde::de::DeserializeOwned>(

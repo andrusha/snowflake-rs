@@ -4,7 +4,7 @@ Snowflake library for undocumented public API. If you want to query documented p
 
 ## Features
 
-Since it does a lot of I/O the library is async-only, examples use [tokio](https://tokio.rs/) as a runtime.
+Since it does a lot of I/O the library is async-only, and currently has hard dependency on [tokio](https://tokio.rs/) as a runtime due to use of [reqwest](https://github.com/seanmonstar/reqwest).
 
 - [x] Single statements
 - [ ] Multiple statements
