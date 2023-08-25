@@ -1,3 +1,4 @@
+use std::time::{SystemTime, UNIX_EPOCH};
 use reqwest::header;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::ClientWithMiddleware;
@@ -100,9 +101,9 @@ impl Connection {
 
         let request_id = Uuid::new_v4();
         let request_guid = Uuid::new_v4();
-        let (client_start_time, _nanos) = request_id.get_timestamp().unwrap().to_unix();
-
+        let client_start_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let client_start_time = client_start_time.to_string();
+
         // fixme: update uuid's on the retry
         let request_id = request_id.to_string();
         let request_guid = request_guid.to_string();
