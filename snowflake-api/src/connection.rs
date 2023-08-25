@@ -1,9 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use reqwest::header;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -101,7 +101,10 @@ impl Connection {
 
         let request_id = Uuid::new_v4();
         let request_guid = Uuid::new_v4();
-        let client_start_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let client_start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let client_start_time = client_start_time.to_string();
 
         // fixme: update uuid's on the retry

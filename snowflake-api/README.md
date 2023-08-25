@@ -8,14 +8,20 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 
 - [x] Single statements
 - [ ] Multiple statements
+- [ ] Async requests (is it needed if whole library is async?)
 - [x] Query results in [Arrow](https://arrow.apache.org/)
+- [ ] Chunked query results
 - [x] Password auth
 - [x] Certificate auth
+- [ ] Browser-auth
+- [ ] Closing session
+- [ ] Token renewal
 - [x] PUT support
 - [ ] GET support
 - [x] AWS integration
 - [ ] GCloud integration
 - [ ] Azure integration
+- [ ] Parallel uploading of small files
 
 ## Why
 

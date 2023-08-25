@@ -19,17 +19,14 @@ use regex::Regex;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
-use put_response::{PutResponse, S3PutResponse};
-use query_response::QueryResponse;
+use responses::ExecResponse;
 use session::{AuthError, Session};
 
 use crate::connection::QueryType;
+use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
-mod auth_response;
 mod connection;
-mod error_response;
-mod put_response;
-mod query_response;
+mod responses;
 mod session;
 
 #[derive(Error, Debug)]
@@ -61,14 +58,20 @@ pub enum SnowflakeApiError {
     #[error(transparent)]
     ObjectStorePathError(#[from] object_store::path::Error),
 
-    #[error("Snowflake API error: `{0}`")]
-    ApiError(String),
+    #[error("Snowflake API error. Code: `{0}`. Message: `{1}`")]
+    ApiError(String, String),
 
     #[error("Snowflake API empty response could mean that query wasn't executed correctly or API call was faulty")]
     EmptyResponse,
 
     #[error("No usable rowsets were included in the response")]
     BrokenResponse,
+
+    #[error("Following feature is not implemented yet: {0}")]
+    Unimplemented(String),
+
+    #[error("Unexpected API response")]
+    UnexpectedResponse,
 }
 
 /// Container for query result.
@@ -170,20 +173,36 @@ impl SnowflakeApi {
 
     async fn exec_put(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
-            .run_sql::<PutResponse>(sql, QueryType::JsonQuery)
+            .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
             .await?;
-        log::debug!("Got put response: {:?}", resp);
+        log::debug!("Got PUT response: {:?}", resp);
 
         match resp {
-            PutResponse::S3(r) => self.put_to_s3(r).await?,
-            PutResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
+            ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::PutGet(pg) => self.put(pg).await,
+            ExecResponse::Error(e) => {
+                Err(SnowflakeApiError::ApiError(e.data.error_code, e.message.unwrap_or_default()))
+            }
         }
-
-        Ok(())
     }
 
-    async fn put_to_s3(&self, r: S3PutResponse) -> Result<(), SnowflakeApiError> {
-        let info = r.data.stage_info;
+    async fn put(&self, resp: PutGetExecResponse) -> Result<(), SnowflakeApiError> {
+        match resp.data.stage_info {
+            PutGetStageInfo::Aws(info) => self.put_to_s3(&resp.data.src_locations, info).await,
+            PutGetStageInfo::Azure(_) => Err(SnowflakeApiError::Unimplemented(
+                "PUT local file requests for Azure".to_string(),
+            )),
+            PutGetStageInfo::Gcs(_) => Err(SnowflakeApiError::Unimplemented(
+                "PUT local file requests for GCS".to_string(),
+            )),
+        }
+    }
+
+    async fn put_to_s3(
+        &self,
+        src_locations: &[String],
+        info: AwsPutGetStageInfo,
+    ) -> Result<(), SnowflakeApiError> {
         let (bucket_name, bucket_path) = info
             .location
             .split_once('/')
@@ -198,7 +217,7 @@ impl SnowflakeApi {
             .build()?;
 
         // todo: security vulnerability, external system tells you which local files to upload
-        for src_path in r.data.src_locations.iter() {
+        for src_path in src_locations {
             let path = Path::new(src_path);
             let filename = path
                 .file_name()
@@ -220,8 +239,8 @@ impl SnowflakeApi {
 
     /// Useful for debugging to get the straight query response
     #[cfg(debug_assertions)]
-    pub async fn exec_response(&mut self, sql: &str) -> Result<QueryResponse, SnowflakeApiError> {
-        self.run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
+    pub async fn exec_response(&mut self, sql: &str) -> Result<ExecResponse, SnowflakeApiError> {
+        self.run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await
     }
 
@@ -234,14 +253,17 @@ impl SnowflakeApi {
 
     async fn exec_arrow(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let resp = self
-            .run_sql::<QueryResponse>(sql, QueryType::ArrowQuery)
+            .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
         log::debug!("Got query response: {:?}", resp);
 
         let resp = match resp {
             // processable response
-            QueryResponse::Result(r) => r,
-            QueryResponse::Error(e) => return Err(SnowflakeApiError::ApiError(e.message)),
+            ExecResponse::Query(qr) => qr,
+            ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::Error(e) => {
+                return Err(SnowflakeApiError::ApiError(e.data.error_code, e.message.unwrap_or_default()))
+            }
         };
 
         // if response was empty, base64 data is empty string
@@ -284,6 +306,7 @@ impl SnowflakeApi {
         self.sequence_id += 1;
 
         let auth = format!("Snowflake Token=\"{}\"", &token);
+        // fixme: use serializable struct
         let body = serde_json::json!({
                 "sqlText": &sql,
                 "asyncExec": false,

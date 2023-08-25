@@ -1,11 +1,12 @@
-use snowflake_jwt::generate_jwt_token;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use snowflake_jwt::generate_jwt_token;
 use thiserror::Error;
 
-use crate::auth_response::AuthResponse;
 use crate::connection;
 use crate::connection::{Connection, QueryType};
+use crate::responses::AuthResponse;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -20,6 +21,12 @@ pub enum AuthError {
 
     #[error("Certificate auth was requested, but certificate wasn't provided")]
     MissingCertificate,
+
+    #[error("Unexpected API response")]
+    UnexpectedResponse,
+
+    #[error("Failed to authenticate. Error code: {0}. Message: {1}")]
+    AuthFailed(String, String),
 }
 
 pub struct AuthToken {
@@ -195,6 +202,7 @@ impl Session {
         let jwt_token = generate_jwt_token(private_key_pem, &full_identifier)?;
 
         // todo: can refactor common parts from both bodies?
+        // fixme: use serializable struct
         Ok(serde_json::json!({
             "data": {
                 // pretend to be Go client in order to default to Arrow output format
@@ -270,9 +278,13 @@ impl Session {
             .await?;
         log::debug!("Auth response: {:?}", resp);
 
-        Ok(AuthToken::new(
-            &resp.data.token,
-            resp.data.validity_in_seconds,
-        ))
+        match resp {
+            AuthResponse::Login(lr) => Ok(AuthToken::new(
+                &lr.data.token,
+                lr.data.master_validity_in_seconds,
+            )),
+            AuthResponse::Auth(_) | AuthResponse::Renew(_) => Err(AuthError::UnexpectedResponse),
+            AuthResponse::Error(e) => Err(AuthError::AuthFailed(e.data.error_code, e.message.unwrap_or_default())),
+        }
     }
 }
