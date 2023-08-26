@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::connection;
 use crate::connection::{Connection, QueryType};
+use crate::requests::{CertLoginRequest, CertRequestData, ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData, SessionParameters};
 use crate::responses::AuthResponse;
 
 #[derive(Error, Debug)]
@@ -193,7 +194,7 @@ impl Session {
         Ok(session_token)
     }
 
-    fn cert_request_body(&self) -> Result<serde_json::Value, AuthError> {
+    fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let private_key_pem = self
             .private_key_pem
@@ -201,57 +202,30 @@ impl Session {
             .ok_or(AuthError::MissingCertificate)?;
         let jwt_token = generate_jwt_token(private_key_pem, &full_identifier)?;
 
-        // todo: can refactor common parts from both bodies?
-        // fixme: use serializable struct
-        Ok(serde_json::json!({
-            "data": {
-                // pretend to be Go client in order to default to Arrow output format
-                "CLIENT_APP_ID": "Go",
-                "CLIENT_APP_VERSION": "1.6.22",
-                "SVN_REVISION": "",
-                "ACCOUNT_NAME": &self.account_identifier,
-                "LOGIN_NAME": &self.username,
-                "AUTHENTICATOR": "SNOWFLAKE_JWT",
-                "TOKEN": &jwt_token,
-                "SESSION_PARAMETERS": {
-                    "CLIENT_VALIDATE_DEFAULT_PARAMETERS": true
-                },
-                "CLIENT_ENVIRONMENT": {
-                    "APPLICATION": "Rust",
-                    "OS": "darwin",
-                    "OS_VERSION": "gc-arm64",
-                    "OCSP_MODE": "FAIL_OPEN"
-                }
+        Ok(CertLoginRequest {
+            data: CertRequestData {
+                login_request_common: self.login_request_common(),
+                authenticator: "SNOWFLAKE_JWT".to_string(),
+                token: jwt_token
             }
-        }))
+        })
     }
 
-    fn passwd_request_body(&self) -> Result<serde_json::Value, AuthError> {
+    fn passwd_request_body(&self) -> Result<PasswordLoginRequest, AuthError> {
         let password = self.password.as_ref().ok_or(AuthError::MissingPassword)?;
 
-        Ok(serde_json::json!({
-            "data": {
-                // pretend to be Go client in order to default to Arrow output format
-                "CLIENT_APP_ID": "Go",
-                "CLIENT_APP_VERSION": "1.6.22",
-                "SVN_REVISION": "",
-                "ACCOUNT_NAME": &self.account_identifier,
-                "LOGIN_NAME": &self.username,
-                "PASSWORD": password,
-                "SESSION_PARAMETERS": {
-                    "CLIENT_VALIDATE_DEFAULT_PARAMETERS": true
-                },
-                "CLIENT_ENVIRONMENT": {
-                    "APPLICATION": "Rust",
-                    "OS": "darwin",
-                    "OS_VERSION": "gc-arm64",
-                    "OCSP_MODE": "FAIL_OPEN"
-                }
+        Ok(PasswordLoginRequest {
+            data: PasswordRequestData {
+                login_request_common: self.login_request_common(),
+                password: password.to_string()
             }
-        }))
+        })
     }
 
-    async fn token_request(&self, body: serde_json::Value) -> Result<AuthToken, AuthError> {
+    async fn token_request<T: serde::ser::Serialize>(
+        &self,
+        body: LoginRequest<T>,
+    ) -> Result<AuthToken, AuthError> {
         let mut get_params = vec![("warehouse", self.warehouse.as_str())];
 
         if let Some(database) = &self.database {
@@ -285,6 +259,26 @@ impl Session {
             )),
             AuthResponse::Auth(_) | AuthResponse::Renew(_) => Err(AuthError::UnexpectedResponse),
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(e.data.error_code, e.message.unwrap_or_default())),
+        }
+    }
+
+    fn login_request_common(&self) -> LoginRequestCommon {
+        LoginRequestCommon {
+            client_app_id: "Go".to_string(),
+            client_app_version: "1.6.22".to_string(),
+            svn_revision: "".to_string(),
+            account_name: self.account_identifier.clone(),
+            login_name: self.username.clone(),
+            session_parameters: SessionParameters {
+                client_validate_default_parameters: true
+            },
+            client_environment: ClientEnvironment {
+                application: "Rust".to_string(),
+                // todo: detect os
+                os: "darwin".to_string(),
+                os_version: "gc-arm64".to_string(),
+                ocsp_mode: "FAIL_OPEN".to_string()
+            }
         }
     }
 }

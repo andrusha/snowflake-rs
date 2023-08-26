@@ -23,11 +23,13 @@ use responses::ExecResponse;
 use session::{AuthError, Session};
 
 use crate::connection::QueryType;
+use crate::requests::ExecRequest;
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
 mod connection;
 mod responses;
 mod session;
+mod requests;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -295,24 +297,23 @@ impl SnowflakeApi {
 
     async fn run_sql<R: serde::de::DeserializeOwned>(
         &mut self,
-        sql: &str,
+        sql_text: &str,
         query_type: QueryType,
     ) -> Result<R, SnowflakeApiError> {
-        log::debug!("Executing: {}", sql);
+        log::debug!("Executing: {}", sql_text);
 
         let token = self.session.get_token().await?;
         // expected by snowflake api for all requests within session to follow sequence id
-        // fixme: race condition
+        // fixme: possible race condition if multiple requests run in parallel, shouldn't be a big problem however
         self.sequence_id += 1;
 
         let auth = format!("Snowflake Token=\"{}\"", &token);
-        // fixme: use serializable struct
-        let body = serde_json::json!({
-                "sqlText": &sql,
-                "asyncExec": false,
-                "sequenceId": self.sequence_id,
-                "isInternal": false
-        });
+        let body = ExecRequest {
+            sql_text: sql_text.to_string(),
+            async_exec: false,
+            sequence_id: self.sequence_id,
+            is_internal: false
+        };
 
         let resp = self
             .connection
