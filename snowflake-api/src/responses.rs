@@ -74,6 +74,7 @@ pub struct LoginResponseData {
     pub parameters: Vec<NameValueParameter>,
     pub session_info: SessionInfo,
     pub master_validity_in_seconds: i64,
+    pub validity_in_seconds: i64,
 }
 
 #[derive(Deserialize, Debug)]

@@ -15,7 +15,7 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 - [x] Certificate auth
 - [ ] Browser-auth
 - [x] Closing session
-- [ ] Token renewal
+- [x] Token renewal
 - [x] PUT support
 - [ ] GET support
 - [x] AWS integration

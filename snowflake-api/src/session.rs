@@ -8,7 +8,7 @@ use crate::connection;
 use crate::connection::{Connection, QueryType};
 use crate::requests::{
     CertLoginRequest, CertRequestData, ClientEnvironment, LoginRequest, LoginRequestCommon,
-    PasswordLoginRequest, PasswordRequestData, SessionParameters,
+    PasswordLoginRequest, PasswordRequestData, RenewSessionRequest, SessionParameters,
 };
 use crate::responses::AuthResponse;
 
@@ -31,20 +31,32 @@ pub enum AuthError {
 
     #[error("Failed to authenticate. Error code: {0}. Message: {1}")]
     AuthFailed(String, String),
+
+    #[error("Can not renew closed session token")]
+    OutOfOrderRenew,
+
+    #[error("Failed to exchange or request a new token")]
+    TokenFetchFailed,
+}
+
+#[derive(Debug)]
+pub struct AuthTokens {
+    pub session_token: AuthToken,
+    pub master_token: AuthToken,
 }
 
 #[derive(Debug, Clone)]
 pub struct AuthToken {
-    pub session_token: String,
-    validity_in_seconds: Duration,
+    pub token: String,
+    valid_for: Duration,
     issued_on: Instant,
 }
 
 impl AuthToken {
-    pub fn new(session_token: &str, validity_in_seconds: i64) -> Self {
-        let session_token = session_token.to_string();
-        // todo: validate that seconds are signed
-        let validity_in_seconds = if validity_in_seconds < 0 {
+    pub fn new(token: &str, validity_in_seconds: i64) -> Self {
+        let token = token.to_string();
+
+        let valid_for = if validity_in_seconds < 0 {
             Duration::from_secs(u64::MAX)
         } else {
             Duration::from_secs(validity_in_seconds as u64)
@@ -52,18 +64,18 @@ impl AuthToken {
         let issued_on = Instant::now();
 
         AuthToken {
-            session_token,
-            validity_in_seconds,
+            token,
+            valid_for,
             issued_on,
         }
     }
 
     pub fn is_expired(&self) -> bool {
-        if let Some(upper_bound) = self.issued_on.checked_add(self.validity_in_seconds) {
-            upper_bound >= Instant::now()
-        } else {
-            false
-        }
+        Instant::now().duration_since(self.issued_on) >= self.valid_for
+    }
+
+    pub fn auth_header(&self) -> String {
+        format!("Snowflake Token=\"{}\"", &self.token)
     }
 }
 
@@ -80,7 +92,8 @@ enum AuthType {
 pub struct Session {
     connection: Arc<Connection>,
 
-    auth_token_cached: Option<AuthToken>,
+    // wrap them into mutex?
+    auth_tokens: Option<AuthTokens>,
     auth_type: AuthType,
     account_identifier: String,
 
@@ -122,7 +135,7 @@ impl Session {
 
         Session {
             connection,
-            auth_token_cached: None,
+            auth_tokens: None,
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
@@ -160,7 +173,7 @@ impl Session {
 
         Session {
             connection,
-            auth_token_cached: None,
+            auth_tokens: None,
             auth_type: AuthType::Password,
             account_identifier,
             warehouse,
@@ -174,34 +187,45 @@ impl Session {
     }
 
     /// Get cached token or request a new one if old one has expired.
-    // todo: do token exchange instead of recreating a session as it loses temporary objects
-    pub async fn get_token(&mut self) -> Result<String, AuthError> {
-        if let Some(token) = self.auth_token_cached.as_ref().filter(|at| at.is_expired()) {
-            return Ok(token.session_token.clone());
+    pub async fn get_token(&mut self) -> Result<&AuthTokens, AuthError> {
+        if self.auth_tokens.is_none()
+            || self
+                .auth_tokens
+                .as_ref()
+                .map(|at| at.master_token.is_expired())
+                .unwrap_or(false)
+        {
+            // Create new session if tokens are absent or can not be exchange
+
+            let tokens = match self.auth_type {
+                AuthType::Certificate => {
+                    log::info!("Starting session with certificate authentication");
+                    self.create(self.cert_request_body()?).await
+                }
+                AuthType::Password => {
+                    log::info!("Starting session with password authentication");
+                    self.create(self.passwd_request_body()?).await
+                }
+            }?;
+            self.auth_tokens = Some(tokens);
+        } else if self
+            .auth_tokens
+            .as_ref()
+            .map(|at| at.session_token.is_expired())
+            .unwrap_or(false)
+        {
+            // Renew old session token
+
+            let tokens = self.renew().await?;
+            self.auth_tokens = Some(tokens);
         }
 
-        // todo: implement token exchange using master token instead of requesting new one
-        // todo: close session when over
-        let token = match self.auth_type {
-            AuthType::Certificate => {
-                log::info!("Starting session with certificate authentication");
-                self.token_request(self.cert_request_body()?).await
-            }
-            AuthType::Password => {
-                log::info!("Starting session with password authentication");
-                self.token_request(self.passwd_request_body()?).await
-            }
-        }?;
-        let session_token = token.session_token.clone();
-        self.auth_token_cached = Some(token);
-
-        Ok(session_token)
+        self.auth_tokens.as_ref().ok_or(AuthError::TokenFetchFailed)
     }
 
     pub async fn close(&mut self) -> Result<(), AuthError> {
-        if let Some(token) = self.auth_token_cached.clone() {
-            let auth = format!("Snowflake Token=\"{}\"", &token.session_token);
-            self.auth_token_cached = None;
+        if let Some(tokens) = self.auth_tokens.as_ref() {
+            log::debug!("Closing sessions");
 
             let resp = self
                 .connection
@@ -209,10 +233,12 @@ impl Session {
                     QueryType::CloseSession,
                     &self.account_identifier,
                     &[("delete", "true")],
-                    Some(&auth),
+                    Some(&tokens.session_token.auth_header()),
                     serde_json::Value::default(),
                 )
                 .await?;
+
+            self.auth_tokens = None;
 
             match resp {
                 AuthResponse::Close(_) => Ok(()),
@@ -255,10 +281,12 @@ impl Session {
         })
     }
 
-    async fn token_request<T: serde::ser::Serialize>(
+    /// Start new session, all the Snowflake temporary objects will be scoped towards it,
+    /// as well as temporary configuration parameters
+    async fn create<T: serde::ser::Serialize>(
         &self,
         body: LoginRequest<T>,
-    ) -> Result<AuthToken, AuthError> {
+    ) -> Result<AuthTokens, AuthError> {
         let mut get_params = vec![("warehouse", self.warehouse.as_str())];
 
         if let Some(database) = &self.database {
@@ -286,10 +314,16 @@ impl Session {
         log::debug!("Auth response: {:?}", resp);
 
         match resp {
-            AuthResponse::Login(lr) => Ok(AuthToken::new(
-                &lr.data.token,
-                lr.data.master_validity_in_seconds,
-            )),
+            AuthResponse::Login(lr) => {
+                let session_token = AuthToken::new(&lr.data.token, lr.data.validity_in_seconds);
+                let master_token =
+                    AuthToken::new(&lr.data.master_token, lr.data.master_validity_in_seconds);
+
+                Ok(AuthTokens {
+                    session_token,
+                    master_token,
+                })
+            }
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
@@ -315,6 +349,49 @@ impl Session {
                 os_version: "gc-arm64".to_string(),
                 ocsp_mode: "FAIL_OPEN".to_string(),
             },
+        }
+    }
+
+    async fn renew(&self) -> Result<AuthTokens, AuthError> {
+        if let Some(token) = &self.auth_tokens {
+            log::debug!("Renewing the token");
+            let auth = token.master_token.auth_header();
+            let body = RenewSessionRequest {
+                old_session_token: token.session_token.token.clone(),
+                request_type: "RENEW".to_string(),
+            };
+
+            let resp = self
+                .connection
+                .request(
+                    QueryType::TokenRequest,
+                    &self.account_identifier,
+                    &[],
+                    Some(&auth),
+                    body,
+                )
+                .await?;
+
+            match resp {
+                AuthResponse::Renew(rs) => {
+                    let session_token =
+                        AuthToken::new(&rs.data.session_token, rs.data.validity_in_seconds_s_t);
+                    let master_token =
+                        AuthToken::new(&rs.data.master_token, rs.data.validity_in_seconds_m_t);
+
+                    Ok(AuthTokens {
+                        session_token,
+                        master_token,
+                    })
+                }
+                AuthResponse::Error(e) => Err(AuthError::AuthFailed(
+                    e.data.error_code,
+                    e.message.unwrap_or_default(),
+                )),
+                _ => Err(AuthError::UnexpectedResponse),
+            }
+        } else {
+            Err(AuthError::OutOfOrderRenew)
         }
     }
 }

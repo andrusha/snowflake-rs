@@ -60,3 +60,10 @@ pub struct CertRequestData {
     pub authenticator: String,
     pub token: String,
 }
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RenewSessionRequest {
+    pub old_session_token: String,
+    pub request_type: String,
+}

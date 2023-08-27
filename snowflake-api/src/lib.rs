@@ -314,12 +314,11 @@ impl SnowflakeApi {
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql_text);
 
-        let token = self.session.get_token().await?;
+        let tokens = self.session.get_token().await?;
         // expected by snowflake api for all requests within session to follow sequence id
         // fixme: possible race condition if multiple requests run in parallel, shouldn't be a big problem however
         self.sequence_id += 1;
 
-        let auth = format!("Snowflake Token=\"{}\"", &token);
         let body = ExecRequest {
             sql_text: sql_text.to_string(),
             async_exec: false,
@@ -329,7 +328,13 @@ impl SnowflakeApi {
 
         let resp = self
             .connection
-            .request::<R>(query_type, &self.account_identifier, &[], Some(&auth), body)
+            .request::<R>(
+                query_type,
+                &self.account_identifier,
+                &[],
+                Some(&tokens.session_token.auth_header()),
+                body,
+            )
             .await?;
 
         Ok(resp)

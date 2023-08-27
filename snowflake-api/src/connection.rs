@@ -35,6 +35,7 @@ struct QueryContext {
 
 pub enum QueryType {
     LoginRequest,
+    TokenRequest,
     CloseSession,
     JsonQuery,
     ArrowQuery,
@@ -46,6 +47,10 @@ impl QueryType {
             QueryType::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
                 accept_mime: "application/json",
+            },
+            QueryType::TokenRequest => QueryContext {
+                path: "/session/token-request",
+                accept_mime: "application/snowflake",
             },
             QueryType::CloseSession => QueryContext {
                 path: "session",
