@@ -6,7 +6,10 @@ use thiserror::Error;
 
 use crate::connection;
 use crate::connection::{Connection, QueryType};
-use crate::requests::{CertLoginRequest, CertRequestData, ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData, SessionParameters};
+use crate::requests::{
+    CertLoginRequest, CertRequestData, ClientEnvironment, LoginRequest, LoginRequestCommon,
+    PasswordLoginRequest, PasswordRequestData, SessionParameters,
+};
 use crate::responses::AuthResponse;
 
 #[derive(Error, Debug)]
@@ -30,6 +33,7 @@ pub enum AuthError {
     AuthFailed(String, String),
 }
 
+#[derive(Debug, Clone)]
 pub struct AuthToken {
     pub session_token: String,
     validity_in_seconds: Duration,
@@ -194,6 +198,35 @@ impl Session {
         Ok(session_token)
     }
 
+    pub async fn close(&mut self) -> Result<(), AuthError> {
+        if let Some(token) = self.auth_token_cached.clone() {
+            let auth = format!("Snowflake Token=\"{}\"", &token.session_token);
+            self.auth_token_cached = None;
+
+            let resp = self
+                .connection
+                .request::<AuthResponse>(
+                    QueryType::CloseSession,
+                    &self.account_identifier,
+                    &[("delete", "true")],
+                    Some(&auth),
+                    serde_json::Value::default(),
+                )
+                .await?;
+
+            match resp {
+                AuthResponse::Close(_) => Ok(()),
+                AuthResponse::Error(e) => Err(AuthError::AuthFailed(
+                    e.data.error_code,
+                    e.message.unwrap_or_default(),
+                )),
+                _ => Err(AuthError::UnexpectedResponse),
+            }
+        } else {
+            Ok(())
+        }
+    }
+
     fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let private_key_pem = self
@@ -206,8 +239,8 @@ impl Session {
             data: CertRequestData {
                 login_request_common: self.login_request_common(),
                 authenticator: "SNOWFLAKE_JWT".to_string(),
-                token: jwt_token
-            }
+                token: jwt_token,
+            },
         })
     }
 
@@ -217,8 +250,8 @@ impl Session {
         Ok(PasswordLoginRequest {
             data: PasswordRequestData {
                 login_request_common: self.login_request_common(),
-                password: password.to_string()
-            }
+                password: password.to_string(),
+            },
         })
     }
 
@@ -243,7 +276,7 @@ impl Session {
         let resp = self
             .connection
             .request::<AuthResponse>(
-                QueryType::Auth,
+                QueryType::LoginRequest,
                 &self.account_identifier,
                 &get_params,
                 None,
@@ -257,8 +290,11 @@ impl Session {
                 &lr.data.token,
                 lr.data.master_validity_in_seconds,
             )),
-            AuthResponse::Auth(_) | AuthResponse::Renew(_) => Err(AuthError::UnexpectedResponse),
-            AuthResponse::Error(e) => Err(AuthError::AuthFailed(e.data.error_code, e.message.unwrap_or_default())),
+            AuthResponse::Error(e) => Err(AuthError::AuthFailed(
+                e.data.error_code,
+                e.message.unwrap_or_default(),
+            )),
+            _ => Err(AuthError::UnexpectedResponse),
         }
     }
 
@@ -270,15 +306,15 @@ impl Session {
             account_name: self.account_identifier.clone(),
             login_name: self.username.clone(),
             session_parameters: SessionParameters {
-                client_validate_default_parameters: true
+                client_validate_default_parameters: true,
             },
             client_environment: ClientEnvironment {
                 application: "Rust".to_string(),
                 // todo: detect os
                 os: "darwin".to_string(),
                 os_version: "gc-arm64".to_string(),
-                ocsp_mode: "FAIL_OPEN".to_string()
-            }
+                ocsp_mode: "FAIL_OPEN".to_string(),
+            },
         }
     }
 }

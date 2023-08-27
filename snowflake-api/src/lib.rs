@@ -27,9 +27,9 @@ use crate::requests::ExecRequest;
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
 mod connection;
+mod requests;
 mod responses;
 mod session;
-mod requests;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -158,6 +158,14 @@ impl SnowflakeApi {
         })
     }
 
+    /// Closes the current session, this is necessary to clean up temporary objects (tables, functions, etc)
+    /// which are Snowflake session dependent.
+    /// If another request is made the new session will be initiated.
+    pub async fn close_session(&mut self) -> Result<(), SnowflakeApiError> {
+        self.session.close().await?;
+        Ok(())
+    }
+
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
     pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
@@ -182,9 +190,10 @@ impl SnowflakeApi {
         match resp {
             ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
             ExecResponse::PutGet(pg) => self.put(pg).await,
-            ExecResponse::Error(e) => {
-                Err(SnowflakeApiError::ApiError(e.data.error_code, e.message.unwrap_or_default()))
-            }
+            ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
+                e.data.error_code,
+                e.message.unwrap_or_default(),
+            )),
         }
     }
 
@@ -264,7 +273,10 @@ impl SnowflakeApi {
             ExecResponse::Query(qr) => qr,
             ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
             ExecResponse::Error(e) => {
-                return Err(SnowflakeApiError::ApiError(e.data.error_code, e.message.unwrap_or_default()))
+                return Err(SnowflakeApiError::ApiError(
+                    e.data.error_code,
+                    e.message.unwrap_or_default(),
+                ))
             }
         };
 
@@ -312,7 +324,7 @@ impl SnowflakeApi {
             sql_text: sql_text.to_string(),
             async_exec: false,
             sequence_id: self.sequence_id,
-            is_internal: false
+            is_internal: false,
         };
 
         let resp = self

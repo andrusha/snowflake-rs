@@ -111,5 +111,7 @@ async fn main() -> Result<()> {
         }
     }
 
+    api.close_session().await?;
+
     Ok(())
 }

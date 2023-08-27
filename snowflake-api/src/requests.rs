@@ -6,12 +6,12 @@ pub struct ExecRequest {
     pub sql_text: String,
     pub async_exec: bool,
     pub sequence_id: u64,
-    pub is_internal: bool
+    pub is_internal: bool,
 }
 
 #[derive(Serialize, Debug)]
 pub struct LoginRequest<T> {
-    pub data: T
+    pub data: T,
 }
 
 pub type PasswordLoginRequest = LoginRequest<PasswordRequestData>;
@@ -32,7 +32,7 @@ pub struct LoginRequestCommon {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct SessionParameters {
-    pub client_validate_default_parameters: bool
+    pub client_validate_default_parameters: bool,
 }
 
 #[derive(Serialize, Debug)]

@@ -34,7 +34,8 @@ struct QueryContext {
 }
 
 pub enum QueryType {
-    Auth,
+    LoginRequest,
+    CloseSession,
     JsonQuery,
     ArrowQuery,
 }
@@ -42,9 +43,13 @@ pub enum QueryType {
 impl QueryType {
     fn query_context(&self) -> QueryContext {
         match self {
-            QueryType::Auth => QueryContext {
+            QueryType::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
                 accept_mime: "application/json",
+            },
+            QueryType::CloseSession => QueryContext {
+                path: "session",
+                accept_mime: "application/snowflake",
             },
             QueryType::JsonQuery => QueryContext {
                 path: "queries/v1/query-request",

@@ -19,6 +19,7 @@ pub enum AuthResponse {
     Login(LoginResponse),
     Auth(AuthenticatorResponse),
     Renew(RenewSessionResponse),
+    Close(CloseSessionResponse),
     Error(ErrorResponse),
 }
 
@@ -37,6 +38,8 @@ pub type ErrorResponse = BaseRestResponse<ErrorResponseData>;
 pub type AuthenticatorResponse = BaseRestResponse<AuthenticatorResponseData>;
 pub type LoginResponse = BaseRestResponse<LoginResponseData>;
 pub type RenewSessionResponse = BaseRestResponse<RenewSessionResponseData>;
+// Data should be always `null` on successful close session response
+pub type CloseSessionResponse = BaseRestResponse<Option<()>>;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -113,13 +116,13 @@ pub struct QueryExecResponseData {
     // is base64-encoded Arrow IPC payload
     pub rowset_base64: Option<String>,
     pub total: i64,
-    pub returned: i64, // unused in .NET
+    pub returned: i64,    // unused in .NET
     pub query_id: String, // unused in .NET
     pub database_provider: Option<String>,
     pub final_database_name: String, // unused in .NET
     pub final_schema_name: Option<String>,
     pub final_warehouse_name: String, // unused in .NET
-    pub final_role_name: String, // unused in .NET
+    pub final_role_name: String,      // unused in .NET
     // only present on SELECT queries
     pub number_of_binds: Option<i32>, // unused in .NET
     // todo: deserialize into enum
