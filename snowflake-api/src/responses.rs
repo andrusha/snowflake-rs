@@ -198,18 +198,19 @@ pub struct PutGetResponseData {
     // file upload parallelism
     pub parallel: i32,
     // file size threshold, small ones are should be uploaded with given parallelism
-    pub threshold: i64,
+    pub threshold: Option<i64>,
     // doesn't need compression if source is already compressed
-    pub auto_compress: bool,
+    pub auto_compress: Option<bool>,
     pub overwrite: bool,
     // maps to one of the predefined compression algos
     // todo: support different compression formats?
-    pub source_compression: String,
+    pub source_compression: Option<String>,
     pub stage_info: PutGetStageInfo,
     pub encryption_material: EncryptionMaterialVariant,
     // GCS specific. If you request multiple files?
+    // might return a [ null ] for AWS responses
     #[serde(default)]
-    pub presigned_urls: Vec<String>,
+    pub presigned_urls: Vec<Option<String>>,
     #[serde(default)]
     pub parameters: Vec<NameValueParameter>,
     pub statement_type_id: Option<i64>,

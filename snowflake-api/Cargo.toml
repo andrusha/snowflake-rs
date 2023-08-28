@@ -22,15 +22,16 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 url = "2"
 uuid = { version = "1.4", features = ["v4"] }
-arrow = "42"
+arrow = "45"
 base64 = "0.21"
 regex = "1"
-object_store = { version = "0.6", features = ["aws"] }
+object_store = { version = "0.7", features = ["aws"] }
 async-trait = "0.1"
 
 [dev-dependencies]
 anyhow = "1"
 pretty_env_logger = "0.5.0"
 clap = { version = "4", features = ["derive"] }
-arrow = { version = "42", features = ["prettyprint"] }
 tokio = { version = "1", features=["macros", "rt-multi-thread"] }
+parquet = { version = "45", features = ["arrow", "snap"] }
+arrow = { version = "45", features = ["prettyprint"] }
