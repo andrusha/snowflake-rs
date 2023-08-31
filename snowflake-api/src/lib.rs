@@ -2,7 +2,7 @@
     issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
     test(no_crate_inject)
 )]
-#![doc = include_str ! ("../README.md")]
+#![doc = include_str!("../README.md")]
 
 use std::io;
 use std::path::Path;
@@ -169,24 +169,109 @@ impl SnowflakeApi {
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
     pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+        // fixme: can go without regex? but needs different accept-mime for those still
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
+        let get_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*get\s+").unwrap();
 
-        // put commands go through a different flow and result is side-effect
+        // put/get commands go through a different flow and result is side-effect
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
             self.exec_put(sql).await.map(|_| QueryResult::Empty)
+        } else if get_re.is_match(sql) {
+            log::info!("Detected GET query");
+
+            self.exec_get(sql).await.map(|_| QueryResult::Empty)
         } else {
             self.exec_arrow(sql).await
         }
+    }
+
+    async fn exec_get(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
+        let resp = self
+            .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
+            .await?;
+        log::debug!("Got GET response: {:?}", resp);
+
+        match resp {
+            ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::PutGet(pg) => self.get(pg).await,
+            ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
+                e.data.error_code,
+                e.message.unwrap_or_default(),
+            )),
+        }
+    }
+
+    async fn get(&self, resp: PutGetExecResponse) -> Result<(), SnowflakeApiError> {
+        match resp.data.stage_info {
+            PutGetStageInfo::Aws(info) => {
+                self.get_from_s3(
+                    resp.data
+                        .local_location
+                        .ok_or(SnowflakeApiError::BrokenResponse)?,
+                    &resp.data.src_locations,
+                    info,
+                )
+                .await
+            }
+            PutGetStageInfo::Azure(_) => Err(SnowflakeApiError::Unimplemented(
+                "GET local file requests for Azure".to_string(),
+            )),
+            PutGetStageInfo::Gcs(_) => Err(SnowflakeApiError::Unimplemented(
+                "GET local file requests for GCS".to_string(),
+            )),
+        }
+    }
+
+    // fixme: refactor s3 put/get into a single function?
+    async fn get_from_s3(
+        &self,
+        local_location: String,
+        src_locations: &[String],
+        info: AwsPutGetStageInfo,
+    ) -> Result<(), SnowflakeApiError> {
+        // todo: use path parser?
+        let (bucket_name, bucket_path) = info
+            .location
+            .split_once('/')
+            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
+
+        let s3 = AmazonS3Builder::new()
+            .with_region(info.region)
+            .with_bucket_name(bucket_name)
+            .with_access_key_id(info.creds.aws_key_id)
+            .with_secret_access_key(info.creds.aws_secret_key)
+            .with_token(info.creds.aws_token)
+            .build()?;
+
+        // todo: implement parallelism for small files
+        // todo: security vulnerability, external system tells you which local files to upload
+        for src_path in src_locations {
+            let dest_path = format!("{}{}", local_location, src_path);
+            let dest_path = object_store::path::Path::parse(dest_path)?;
+
+            let src_path = format!("{}{}", bucket_path, src_path);
+            let src_path = object_store::path::Path::parse(src_path)?;
+
+            // fixme: can we stream the thing or multipart?
+            let bytes = s3.get(&src_path).await?;
+            LocalFileSystem::new()
+                .put(&dest_path, bytes.bytes().await?)
+                .await?;
+        }
+
+        Ok(())
     }
 
     async fn exec_put(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
             .await?;
+        // fixme: don't log secrets maybe?
         log::debug!("Got PUT response: {:?}", resp);
 
+        // fixme: support PUT for external stage
         match resp {
             ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
             ExecResponse::PutGet(pg) => self.put(pg).await,
@@ -227,6 +312,7 @@ impl SnowflakeApi {
             .with_token(info.creds.aws_token)
             .build()?;
 
+        // todo: implement parallelism for small files
         // todo: security vulnerability, external system tells you which local files to upload
         for src_path in src_locations {
             let path = Path::new(src_path);
@@ -234,14 +320,15 @@ impl SnowflakeApi {
                 .file_name()
                 .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
 
+            // fixme: nicer way to join paths?
             // fixme: unwrap
             let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
             let dest_path = object_store::path::Path::parse(dest_path)?;
 
             let src_path = object_store::path::Path::parse(src_path)?;
 
+            // fixme: can we stream the thing or multipart?
             let fs = LocalFileSystem::new().get(&src_path).await?;
-
             s3.put(&dest_path, fs.bytes().await?).await?;
         }
 
@@ -276,7 +363,7 @@ impl SnowflakeApi {
                 return Err(SnowflakeApiError::ApiError(
                     e.data.error_code,
                     e.message.unwrap_or_default(),
-                ))
+                ));
             }
         };
 

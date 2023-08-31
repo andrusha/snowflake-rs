@@ -3,6 +3,8 @@ use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
 use snowflake_api::{QueryResult, SnowflakeApi};
 use std::fs;
+use std::fs::File;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
 extern crate snowflake_api;
 
@@ -43,6 +45,9 @@ struct Args {
 
     #[arg(long)]
     csv_path: String,
+
+    #[arg(long)]
+    output_path: String,
 }
 
 #[tokio::main]
@@ -111,7 +116,38 @@ async fn main() -> Result<()> {
         }
     }
 
+    log::info!("Copy table contents into a stage");
+    api.exec(
+        "COPY INTO @%OSCAR_AGE_MALE/output/ FROM OSCAR_AGE_MALE FILE_FORMAT = (TYPE = parquet COMPRESSION = NONE) HEADER = TRUE OVERWRITE = TRUE SINGLE = TRUE;"
+    ).await?;
+
+    log::info!("Downloading Parquet files");
+    api.exec(&format!(
+        "GET @%OSCAR_AGE_MALE/output/ file://{}",
+        &args.output_path
+    ))
+    .await?;
+
+    log::info!("Closing Snowflake session");
     api.close_session().await?;
+
+    log::info!("Reading downloaded files");
+    let parquet_dir = format!("{}output", &args.output_path);
+    let paths = fs::read_dir(&parquet_dir).unwrap();
+
+    for path in paths {
+        let path = path?.path();
+        log::info!("Reading {:?}", path);
+        let file = File::open(path)?;
+
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let reader = builder.build()?;
+        let mut batches = Vec::default();
+        for batch in reader {
+            batches.push(batch?);
+        }
+        println!("{}", pretty_format_batches(batches.as_slice()).unwrap());
+    }
 
     Ok(())
 }
