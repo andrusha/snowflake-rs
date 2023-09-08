@@ -89,13 +89,13 @@ jobs:
         run: |
           case "${{ matrix.target }}" in
           "x86_64-unknown-linux-gnu")
-            packages="libssl-dev"
+            packages=""
             ;;
           "i686-unknown-linux-gnu")
-            packages="gcc-multilib g++-multilib libssl-dev"
+            packages="gcc-multilib g++-multilib"
             ;;
           "arm-unknown-linux-gnueabihf")
-            packages="gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user libssl-dev"
+            packages="gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user"
             ;;
           esac
 
@@ -105,6 +105,21 @@ jobs:
           echo "RUST_TEST_THREADS=1" >> $GITHUB_ENV
           echo BINDGEN_EXTRA_CLANG_ARGS="--sysroot /usr/arm-linux-gnueabihf" >> $GITHUB_ENV
         if: matrix.target == 'arm-unknown-linux-gnueabihf'
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  windows-test:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
