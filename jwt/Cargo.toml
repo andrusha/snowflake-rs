@@ -13,10 +13,10 @@ license = "Apache-2.0"
 
 [dependencies]
 thiserror = "1"
+rsa = "0.9"
 sha2 = "0.10"
 base64 = "0.21"
 jsonwebtoken = "8"
-openssl = "0.10"
 serde = "1"
 time = "0.3"
 

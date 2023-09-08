@@ -19,7 +19,7 @@ use std::fs;
 use snowflake_jwt;
 
 fn get_token(private_key_path: &str, account_identifier: &str, username: &str) -> Result<String> {
-    let pem = fs::read(private_key_path)?;
+    let pem = fs::read_to_string(private_key_path)?;
     let full_identifier = format!("{}.{}", account_identifier, username);
     let jwt = snowflake_jwt::generate_jwt_token(&pem, &full_identifier)?;
 

@@ -42,7 +42,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let pem = fs::read(&args.private_key)?;
+    let pem = fs::read_to_string(&args.private_key)?;
     let full_identifier = format!("{}.{}", &args.account_identifier, &args.username);
     let jwt = snowflake_jwt::generate_jwt_token(&pem, &full_identifier)?;
 

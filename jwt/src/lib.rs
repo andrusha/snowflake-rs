@@ -6,21 +6,35 @@
 
 use base64::Engine;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use openssl::rsa::Rsa;
+use rsa::pkcs1::EncodeRsaPrivateKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::{Duration, OffsetDateTime};
 
-use crate::JwtError::JwtEncodingError;
-
 #[derive(Error, Debug)]
 pub enum JwtError {
     #[error(transparent)]
-    OpenSslError(#[from] openssl::error::ErrorStack),
+    Rsa(#[from] rsa::Error),
 
-    #[error("unable to encode JWT: `{0}`")]
-    JwtEncodingError(String),
+    #[error(transparent)]
+    Pkcs8(#[from] rsa::pkcs8::Error),
+
+    #[error(transparent)]
+    Spki(#[from] rsa::pkcs8::spki::Error),
+
+    #[error(transparent)]
+    Pkcs1(#[from] rsa::pkcs1::Error),
+
+    #[error(transparent)]
+    Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
+    Der(#[from] rsa::pkcs1::der::Error),
+
+    #[error(transparent)]
+    JwtEncoding(#[from] jsonwebtoken::errors::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,24 +100,27 @@ fn pubkey_fingerprint(pubkey: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(hasher.finalize())
 }
 
-pub fn generate_jwt_token<T: AsRef<[u8]>>(
-    private_key_pem: T,
+pub fn generate_jwt_token(
+    private_key_pem: &str,
     // Snowflake expects uppercase <account identifier>.<username>
     full_identifier: &str,
 ) -> Result<String, JwtError> {
     // Reading a private key:
     // rsa-2048.p8 -> public key -> der bytes -> hash
-    let privk = Rsa::private_key_from_pem(private_key_pem.as_ref())?;
-    let pubk = privk.public_key_to_der()?;
-
-    let iss = format!("{}.SHA256:{}", full_identifier, pubkey_fingerprint(&pubk));
+    let pkey = rsa::RsaPrivateKey::from_pkcs8_pem(private_key_pem)?;
+    let pubk = pkey.to_public_key().to_public_key_der()?;
+    let iss = format!(
+        "{}.SHA256:{}",
+        full_identifier,
+        pubkey_fingerprint(pubk.as_bytes())
+    );
 
     let iat = OffsetDateTime::now_utc();
     let exp = iat + Duration::days(1);
 
     let claims = Claims::new(iss, full_identifier.to_owned(), iat, exp);
-    let ek = EncodingKey::from_rsa_der(&privk.private_key_to_der()?);
+    let ek = EncodingKey::from_rsa_der(pkey.to_pkcs1_der()?.as_bytes());
 
-    encode(&Header::new(Algorithm::RS256), &claims, &ek)
-        .map_err(|e| JwtEncodingError(e.to_string()))
+    let res = encode(&Header::new(Algorithm::RS256), &claims, &ek)?;
+    Ok(res)
 }
