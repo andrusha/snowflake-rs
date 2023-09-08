@@ -1,0 +1,24 @@
+on:
+  workflow_dispatch:
+
+name: Publish API
+
+jobs:
+
+  publish-api:
+    name: Publish Snowflake API
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo publish -p snowflake-api
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

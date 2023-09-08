@@ -103,7 +103,7 @@ pub struct Session {
 
     username: String,
     role: Option<String>,
-    private_key_pem: Option<Vec<u8>>,
+    private_key_pem: Option<String>,
     password: Option<String>,
 }
 
@@ -120,7 +120,7 @@ impl Session {
         schema: Option<&str>,
         username: &str,
         role: Option<&str>,
-        private_key_pem: &[u8],
+        private_key_pem: &str,
     ) -> Self {
         // uppercase everything as this is the convention
         let account_identifier = account_identifier.to_uppercase();
@@ -131,7 +131,7 @@ impl Session {
 
         let username = username.to_uppercase();
         let role = role.map(str::to_uppercase);
-        let private_key_pem = Some(private_key_pem.to_vec());
+        let private_key_pem = Some(private_key_pem.to_string());
 
         Session {
             connection,

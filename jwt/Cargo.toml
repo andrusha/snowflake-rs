@@ -1,6 +1,6 @@
 [package]
 name = "snowflake-jwt"
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
 description = "Snowflake JWT token generator"
 authors = ["Andrew Korzhuev <korzhuev@andrusha.me>", "Artem Semenov <hi@artps.org>"]

@@ -134,7 +134,7 @@ impl SnowflakeApi {
         schema: Option<&str>,
         username: &str,
         role: Option<&str>,
-        private_key_pem: &[u8],
+        private_key_pem: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let connection = Arc::new(Connection::new()?);
 
