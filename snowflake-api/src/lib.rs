@@ -12,6 +12,7 @@ use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
+use futures::future::try_join_all;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
@@ -291,14 +292,26 @@ impl SnowflakeApi {
 
             Ok(QueryResult::Json(json))
         } else if let Some(base64) = resp.data.rowset_base64 {
-            log::info!("Got base64 encoded response");
-            let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
-            let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
-
             // fixme: loads everything into memory
-            let mut res = Vec::new();
-            for batch in fr {
-                res.push(batch?);
+            let mut res = vec![];
+            if !base64.is_empty() {
+                log::info!("Got base64 encoded response");
+                let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
+                let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
+                for batch in fr {
+                    res.push(batch?);
+                }
+            }
+            let chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
+                self.connection
+                    .get_chunk(&chunk.url, &resp.data.chunk_headers)
+            }))
+            .await?;
+            for bytes in chunks {
+                let fr = StreamReader::try_new_unbuffered(&*bytes, None)?;
+                for batch in fr {
+                    res.push(batch?);
+                }
             }
 
             Ok(QueryResult::Arrow(res))

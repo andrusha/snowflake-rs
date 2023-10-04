@@ -14,7 +14,7 @@ license = "Apache-2.0"
 [dependencies]
 thiserror = "1"
 snowflake-jwt = "0.3.0"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.11", default-features = false, features = ["gzip", "rustls-tls", "json"] }
 reqwest-middleware = "0.2"
 reqwest-retry = "0.3"
 log = "0.4"
@@ -27,6 +27,8 @@ base64 = "0.21"
 regex = "1"
 object_store = { version = "0.7", features = ["aws"] }
 async-trait = "0.1"
+bytes = "1"
+futures = "0.3"
 
 [dev-dependencies]
 anyhow = "1"
