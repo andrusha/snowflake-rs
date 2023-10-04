@@ -225,8 +225,12 @@ impl Session {
             *auth_tokens = Some(tokens);
         }
         auth_tokens.as_mut().unwrap().sequence_id += 1;
+        let session_token_auth_header = format!(
+            "Snowflake Token=\"{}\"",
+            &auth_tokens.as_ref().unwrap().session_token.token
+        );
         Ok(AuthParts {
-            session_token_auth_header: auth_tokens.as_ref().unwrap().session_token.token.clone(),
+            session_token_auth_header,
             sequence_id: auth_tokens.as_ref().unwrap().sequence_id,
         })
     }

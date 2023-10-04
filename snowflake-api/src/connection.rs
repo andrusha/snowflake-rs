@@ -115,9 +115,8 @@ impl Connection {
         let client_start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs();
-        let client_start_time = client_start_time.to_string();
-
+            .as_secs()
+            .to_string();
         // fixme: update uuid's on the retry
         let request_id = request_id.to_string();
         let request_guid = request_guid.to_string();

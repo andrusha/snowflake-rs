@@ -332,6 +332,7 @@ impl SnowflakeApi {
             sequence_id: parts.sequence_id,
             is_internal: false,
         };
+        println!("{body:?}");
 
         let resp = self
             .connection
