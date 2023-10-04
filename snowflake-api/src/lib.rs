@@ -281,18 +281,16 @@ impl SnowflakeApi {
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
         if resp.data.returned == 0 {
-            log::info!("Got response with 0 rows");
-
+            log::debug!("Got response with 0 rows");
             Ok(QueryResult::Empty)
         } else if let Some(json) = resp.data.rowset {
-            log::info!("Got JSON response");
-
+            log::debug!("Got JSON response");
             Ok(QueryResult::Json(json))
         } else if let Some(base64) = resp.data.rowset_base64 {
             // fixme: loads everything into memory
             let mut res = vec![];
             if !base64.is_empty() {
-                log::info!("Got base64 encoded response");
+                log::debug!("Got base64 encoded response");
                 let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
                 let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
                 for batch in fr {
@@ -332,7 +330,6 @@ impl SnowflakeApi {
             sequence_id: parts.sequence_id,
             is_internal: false,
         };
-        println!("{body:?}");
 
         let resp = self
             .connection
