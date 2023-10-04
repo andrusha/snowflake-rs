@@ -91,7 +91,6 @@ pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
     account_identifier: String,
-    sequence_id: u64,
 }
 
 impl SnowflakeApi {
@@ -123,7 +122,6 @@ impl SnowflakeApi {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
-            sequence_id: 0,
         })
     }
 
@@ -155,7 +153,6 @@ impl SnowflakeApi {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
-            sequence_id: 0,
         })
     }
 
@@ -169,7 +166,7 @@ impl SnowflakeApi {
 
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
-    pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    pub async fn exec(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
         // put commands go through a different flow and result is side-effect
@@ -182,7 +179,7 @@ impl SnowflakeApi {
         }
     }
 
-    async fn exec_put(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
+    async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
             .await?;
@@ -263,7 +260,7 @@ impl SnowflakeApi {
             .await
     }
 
-    async fn exec_arrow(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    async fn exec_arrow(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
@@ -321,21 +318,18 @@ impl SnowflakeApi {
     }
 
     async fn run_sql<R: serde::de::DeserializeOwned>(
-        &mut self,
+        &self,
         sql_text: &str,
         query_type: QueryType,
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql_text);
 
-        let tokens = self.session.get_token().await?;
-        // expected by snowflake api for all requests within session to follow sequence id
-        // fixme: possible race condition if multiple requests run in parallel, shouldn't be a big problem however
-        self.sequence_id += 1;
+        let parts = self.session.get_token().await?;
 
         let body = ExecRequest {
             sql_text: sql_text.to_string(),
             async_exec: false,
-            sequence_id: self.sequence_id,
+            sequence_id: parts.sequence_id,
             is_internal: false,
         };
 
@@ -345,7 +339,7 @@ impl SnowflakeApi {
                 query_type,
                 &self.account_identifier,
                 &[],
-                Some(&tokens.session_token.auth_header()),
+                Some(&parts.session_token_auth_header),
                 body,
             )
             .await?;

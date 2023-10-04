@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures::lock::Mutex;
 use snowflake_jwt::generate_jwt_token;
 use thiserror::Error;
 
@@ -40,16 +41,24 @@ pub enum AuthError {
 }
 
 #[derive(Debug)]
-pub struct AuthTokens {
-    pub session_token: AuthToken,
-    pub master_token: AuthToken,
+struct AuthTokens {
+    session_token: AuthToken,
+    master_token: AuthToken,
+    /// expected by snowflake api for all requests within session to follow sequence id
+    sequence_id: u64,
 }
 
 #[derive(Debug, Clone)]
-pub struct AuthToken {
-    pub token: String,
+struct AuthToken {
+    token: String,
     valid_for: Duration,
     issued_on: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthParts {
+    pub session_token_auth_header: String,
+    pub sequence_id: u64,
 }
 
 impl AuthToken {
@@ -92,8 +101,7 @@ enum AuthType {
 pub struct Session {
     connection: Arc<Connection>,
 
-    // wrap them into mutex?
-    auth_tokens: Option<AuthTokens>,
+    auth_tokens: Mutex<Option<AuthTokens>>,
     auth_type: AuthType,
     account_identifier: String,
 
@@ -135,7 +143,7 @@ impl Session {
 
         Session {
             connection,
-            auth_tokens: None,
+            auth_tokens: Mutex::new(None),
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
@@ -173,7 +181,7 @@ impl Session {
 
         Session {
             connection,
-            auth_tokens: None,
+            auth_tokens: Mutex::new(None),
             auth_type: AuthType::Password,
             account_identifier,
             warehouse,
@@ -187,16 +195,15 @@ impl Session {
     }
 
     /// Get cached token or request a new one if old one has expired.
-    pub async fn get_token(&mut self) -> Result<&AuthTokens, AuthError> {
-        if self.auth_tokens.is_none()
-            || self
-                .auth_tokens
+    pub async fn get_token(&self) -> Result<AuthParts, AuthError> {
+        let mut auth_tokens = self.auth_tokens.lock().await;
+        if auth_tokens.is_none()
+            || auth_tokens
                 .as_ref()
                 .map(|at| at.master_token.is_expired())
                 .unwrap_or(false)
         {
             // Create new session if tokens are absent or can not be exchange
-
             let tokens = match self.auth_type {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
@@ -207,24 +214,25 @@ impl Session {
                     self.create(self.passwd_request_body()?).await
                 }
             }?;
-            self.auth_tokens = Some(tokens);
-        } else if self
-            .auth_tokens
+            *auth_tokens = Some(tokens);
+        } else if auth_tokens
             .as_ref()
             .map(|at| at.session_token.is_expired())
             .unwrap_or(false)
         {
             // Renew old session token
-
             let tokens = self.renew().await?;
-            self.auth_tokens = Some(tokens);
+            *auth_tokens = Some(tokens);
         }
-
-        self.auth_tokens.as_ref().ok_or(AuthError::TokenFetchFailed)
+        auth_tokens.as_mut().unwrap().sequence_id += 1;
+        Ok(AuthParts {
+            session_token_auth_header: auth_tokens.as_ref().unwrap().session_token.token.clone(),
+            sequence_id: auth_tokens.as_ref().unwrap().sequence_id,
+        })
     }
 
     pub async fn close(&mut self) -> Result<(), AuthError> {
-        if let Some(tokens) = self.auth_tokens.as_ref() {
+        if let Some(tokens) = self.auth_tokens.lock().await.take() {
             log::debug!("Closing sessions");
 
             let resp = self
@@ -237,8 +245,6 @@ impl Session {
                     serde_json::Value::default(),
                 )
                 .await?;
-
-            self.auth_tokens = None;
 
             match resp {
                 AuthResponse::Close(_) => Ok(()),
@@ -322,6 +328,7 @@ impl Session {
                 Ok(AuthTokens {
                     session_token,
                     master_token,
+                    sequence_id: 0,
                 })
             }
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(
@@ -353,7 +360,7 @@ impl Session {
     }
 
     async fn renew(&self) -> Result<AuthTokens, AuthError> {
-        if let Some(token) = &self.auth_tokens {
+        if let Some(token) = self.auth_tokens.lock().await.take() {
             log::debug!("Renewing the token");
             let auth = token.master_token.auth_header();
             let body = RenewSessionRequest {
@@ -382,6 +389,7 @@ impl Session {
                     Ok(AuthTokens {
                         session_token,
                         master_token,
+                        sequence_id: token.sequence_id,
                     })
                 }
                 AuthResponse::Error(e) => Err(AuthError::AuthFailed(
