@@ -285,6 +285,9 @@ impl SnowflakeApi {
             Ok(QueryResult::Empty)
         } else if let Some(json) = resp.data.rowset {
             log::debug!("Got JSON response");
+            // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
+            // unless user sets session variable to return json. This case was added for debugging and status
+            // information being passed through that fields.
             Ok(QueryResult::Json(json))
         } else if let Some(base64) = resp.data.rowset_base64 {
             // fixme: loads everything into memory
