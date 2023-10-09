@@ -1,8 +1,8 @@
-use reqwest::header;
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use url::Url;
@@ -82,6 +82,7 @@ impl Connection {
         // use builder to fail safely, unlike client new
         let client = reqwest::ClientBuilder::new()
             .user_agent("Rust/0.0.1")
+            .gzip(true)
             .referer(false);
 
         #[cfg(debug_assertions)]
@@ -114,9 +115,8 @@ impl Connection {
         let client_start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs();
-        let client_start_time = client_start_time.to_string();
-
+            .as_secs()
+            .to_string();
         // fixme: update uuid's on the retry
         let request_id = request_id.to_string();
         let request_guid = request_guid.to_string();
@@ -156,5 +156,28 @@ impl Connection {
             .await?;
 
         Ok(resp.json::<R>().await?)
+    }
+
+    pub async fn get_chunk(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+    ) -> Result<bytes::Bytes, ConnectionError> {
+        let mut header_map = HeaderMap::new();
+        for (k, v) in headers {
+            header_map.insert(
+                HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                HeaderValue::from_bytes(v.as_bytes()).unwrap(),
+            );
+        }
+        let bytes = self
+            .client
+            .get(url)
+            .headers(header_map)
+            .send()
+            .await?
+            .bytes()
+            .await?;
+        Ok(bytes)
     }
 }

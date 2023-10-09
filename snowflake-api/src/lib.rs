@@ -12,6 +12,7 @@ use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
+use futures::future::try_join_all;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
@@ -90,7 +91,6 @@ pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
     account_identifier: String,
-    sequence_id: u64,
 }
 
 impl SnowflakeApi {
@@ -122,7 +122,6 @@ impl SnowflakeApi {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
-            sequence_id: 0,
         })
     }
 
@@ -154,7 +153,6 @@ impl SnowflakeApi {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
-            sequence_id: 0,
         })
     }
 
@@ -168,7 +166,7 @@ impl SnowflakeApi {
 
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
-    pub async fn exec(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    pub async fn exec(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
         // put commands go through a different flow and result is side-effect
@@ -181,7 +179,7 @@ impl SnowflakeApi {
         }
     }
 
-    async fn exec_put(&mut self, sql: &str) -> Result<(), SnowflakeApiError> {
+    async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
             .await?;
@@ -262,7 +260,7 @@ impl SnowflakeApi {
             .await
     }
 
-    async fn exec_arrow(&mut self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    async fn exec_arrow(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
@@ -283,22 +281,35 @@ impl SnowflakeApi {
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
         if resp.data.returned == 0 {
-            log::info!("Got response with 0 rows");
-
+            log::debug!("Got response with 0 rows");
             Ok(QueryResult::Empty)
         } else if let Some(json) = resp.data.rowset {
-            log::info!("Got JSON response");
-
+            log::debug!("Got JSON response");
+            // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
+            // unless user sets session variable to return json. This case was added for debugging and status
+            // information being passed through that fields.
             Ok(QueryResult::Json(json))
         } else if let Some(base64) = resp.data.rowset_base64 {
-            log::info!("Got base64 encoded response");
-            let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
-            let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
-
             // fixme: loads everything into memory
-            let mut res = Vec::new();
-            for batch in fr {
-                res.push(batch?);
+            let mut res = vec![];
+            if !base64.is_empty() {
+                log::debug!("Got base64 encoded response");
+                let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
+                let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
+                for batch in fr {
+                    res.push(batch?);
+                }
+            }
+            let chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
+                self.connection
+                    .get_chunk(&chunk.url, &resp.data.chunk_headers)
+            }))
+            .await?;
+            for bytes in chunks {
+                let fr = StreamReader::try_new_unbuffered(&*bytes, None)?;
+                for batch in fr {
+                    res.push(batch?);
+                }
             }
 
             Ok(QueryResult::Arrow(res))
@@ -308,21 +319,18 @@ impl SnowflakeApi {
     }
 
     async fn run_sql<R: serde::de::DeserializeOwned>(
-        &mut self,
+        &self,
         sql_text: &str,
         query_type: QueryType,
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql_text);
 
-        let tokens = self.session.get_token().await?;
-        // expected by snowflake api for all requests within session to follow sequence id
-        // fixme: possible race condition if multiple requests run in parallel, shouldn't be a big problem however
-        self.sequence_id += 1;
+        let parts = self.session.get_token().await?;
 
         let body = ExecRequest {
             sql_text: sql_text.to_string(),
             async_exec: false,
-            sequence_id: self.sequence_id,
+            sequence_id: parts.sequence_id,
             is_internal: false,
         };
 
@@ -332,7 +340,7 @@ impl SnowflakeApi {
                 query_type,
                 &self.account_identifier,
                 &[],
-                Some(&tokens.session_token.auth_header()),
+                Some(&parts.session_token_auth_header),
                 body,
             )
             .await?;
