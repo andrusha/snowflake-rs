@@ -1,6 +1,6 @@
 [package]
 name = "snowflake-api"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Snowflake API bindings"
 authors = ["Andrew Korzhuev <korzhuev@andrusha.me>"]
@@ -22,10 +22,10 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-arrow = "48"
+arrow = "49"
 base64 = "0.21"
 regex = "1"
-object_store = { version = "0.7", features = ["aws"] }
+object_store = { version = "0.8", features = ["aws"] }
 async-trait = "0.1"
 bytes = "1"
 futures = "0.3"
@@ -34,5 +34,5 @@ futures = "0.3"
 anyhow = "1"
 pretty_env_logger = "0.5"
 clap = { version = "4", features = ["derive"] }
-arrow = { version = "48", features = ["prettyprint"] }
+arrow = { version = "49", features = ["prettyprint"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
