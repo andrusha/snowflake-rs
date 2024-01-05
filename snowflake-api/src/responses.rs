@@ -120,7 +120,7 @@ pub struct QueryExecResponseData {
     pub returned: i64,    // unused in .NET
     pub query_id: String, // unused in .NET
     pub database_provider: Option<String>,
-    pub final_database_name: String, // unused in .NET
+    pub final_database_name: Option<String>, // unused in .NET
     pub final_schema_name: Option<String>,
     pub final_warehouse_name: String, // unused in .NET
     pub final_role_name: String,      // unused in .NET
