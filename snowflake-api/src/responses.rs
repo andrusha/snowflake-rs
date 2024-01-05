@@ -82,7 +82,7 @@ pub struct LoginResponseData {
 pub struct SessionInfo {
     pub database_name: Option<String>,
     pub schema_name: Option<String>,
-    pub warehouse_name: String,
+    pub warehouse_name: Option<String>,
     pub role_name: String,
 }
 
@@ -122,8 +122,8 @@ pub struct QueryExecResponseData {
     pub database_provider: Option<String>,
     pub final_database_name: Option<String>, // unused in .NET
     pub final_schema_name: Option<String>,
-    pub final_warehouse_name: String, // unused in .NET
-    pub final_role_name: String,      // unused in .NET
+    pub final_warehouse_name: Option<String>, // unused in .NET
+    pub final_role_name: String,              // unused in .NET
     // only present on SELECT queries
     pub number_of_binds: Option<i32>, // unused in .NET
     // todo: deserialize into enum
