@@ -1,6 +1,6 @@
 [package]
 name = "snowflake-api"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Snowflake API bindings"
 authors = ["Andrew Korzhuev <korzhuev@andrusha.me>"]
