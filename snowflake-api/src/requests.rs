@@ -15,6 +15,7 @@ pub struct LoginRequest<T> {
 }
 
 pub type PasswordLoginRequest = LoginRequest<PasswordRequestData>;
+#[cfg(feature = "cert-auth")]
 pub type CertLoginRequest = LoginRequest<CertRequestData>;
 
 #[derive(Serialize, Debug)]

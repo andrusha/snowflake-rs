@@ -2,20 +2,24 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::lock::Mutex;
+#[cfg(feature = "cert-auth")]
 use snowflake_jwt::generate_jwt_token;
 use thiserror::Error;
 
 use crate::connection;
 use crate::connection::{Connection, QueryType};
+#[cfg(feature = "cert-auth")]
+use crate::requests::{CertLoginRequest, CertRequestData};
 use crate::requests::{
-    CertLoginRequest, CertRequestData, ClientEnvironment, LoginRequest, LoginRequestCommon,
-    PasswordLoginRequest, PasswordRequestData, RenewSessionRequest, SessionParameters,
+    ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData,
+    RenewSessionRequest, SessionParameters,
 };
 use crate::responses::AuthResponse;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error(transparent)]
+    #[cfg(feature = "cert-auth")]
     JwtError(#[from] snowflake_jwt::JwtError),
 
     #[error(transparent)]
@@ -38,6 +42,9 @@ pub enum AuthError {
 
     #[error("Failed to exchange or request a new token")]
     TokenFetchFailed,
+
+    #[error("Enable the cert-auth feature to use certificate authentication")]
+    CertAuthNotEnabled,
 }
 
 #[derive(Debug)]
@@ -111,6 +118,8 @@ pub struct Session {
 
     username: String,
     role: Option<String>,
+    // This is not used with the certificate auth crate
+    #[allow(dead_code)]
     private_key_pem: Option<String>,
     password: Option<String>,
 }
@@ -205,7 +214,10 @@ impl Session {
             let tokens = match self.auth_type {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
-                    self.create(self.cert_request_body()?).await
+                    #[cfg(feature = "cert-auth")]
+                    return self.create(self.cert_request_body()?).await;
+                    #[cfg(not(feature = "cert-auth"))]
+                    return Err(AuthError::MissingCertificate);
                 }
                 AuthType::Password => {
                     log::info!("Starting session with password authentication");
@@ -258,6 +270,7 @@ impl Session {
         }
     }
 
+    #[cfg(feature = "cert-auth")]
     fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
         let private_key_pem = self
