@@ -10,8 +10,9 @@ use crate::connection;
 use crate::connection::{Connection, QueryType};
 #[cfg(feature = "cert-auth")]
 use crate::requests::{CertLoginRequest, CertRequestData};
-use crate::requests::{ClientEnvironment, LoginRequest, LoginRequestCommon,
-    PasswordLoginRequest, PasswordRequestData, RenewSessionRequest, SessionParameters
+use crate::requests::{
+    ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData,
+    RenewSessionRequest, SessionParameters,
 };
 use crate::responses::AuthResponse;
 
@@ -118,7 +119,8 @@ pub struct Session {
     username: String,
     role: Option<String>,
     // This is not used with the certificate auth crate
-    #[allow(dead_code)] private_key_pem: Option<String>,
+    #[allow(dead_code)]
+    private_key_pem: Option<String>,
     password: Option<String>,
 }
 
