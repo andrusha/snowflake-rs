@@ -97,7 +97,7 @@ impl SnowflakeApi {
     /// Initialize object with password auth. Authentication happens on the first request.
     pub fn with_password_auth(
         account_identifier: &str,
-        warehouse: &str,
+        warehouse: Option<&str>,
         database: Option<&str>,
         schema: Option<&str>,
         username: &str,
@@ -128,7 +128,7 @@ impl SnowflakeApi {
     /// Initialize object with private certificate auth. Authentication happens on the first request.
     pub fn with_certificate_auth(
         account_identifier: &str,
-        warehouse: &str,
+        warehouse: Option<&str>,
         database: Option<&str>,
         schema: Option<&str>,
         username: &str,

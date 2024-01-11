@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
             let pem = fs::read_to_string(pkey)?;
             SnowflakeApi::with_certificate_auth(
                 &args.account_identifier,
-                &args.warehouse,
+                Some(&args.warehouse),
                 Some(&args.database),
                 Some(&args.schema),
                 &args.username,
@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
         }
         (None, Some(pwd)) => SnowflakeApi::with_password_auth(
             &args.account_identifier,
-            &args.warehouse,
+            Some(&args.warehouse),
             Some(&args.database),
             Some(&args.schema),
             &args.username,

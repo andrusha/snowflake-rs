@@ -105,7 +105,7 @@ pub struct Session {
     auth_type: AuthType,
     account_identifier: String,
 
-    warehouse: String,
+    warehouse: Option<String>,
     database: Option<String>,
     schema: Option<String>,
 
@@ -123,7 +123,7 @@ impl Session {
     pub fn cert_auth(
         connection: Arc<Connection>,
         account_identifier: &str,
-        warehouse: &str,
+        warehouse: Option<&str>,
         database: Option<&str>,
         schema: Option<&str>,
         username: &str,
@@ -133,7 +133,6 @@ impl Session {
         // uppercase everything as this is the convention
         let account_identifier = account_identifier.to_uppercase();
 
-        let warehouse = warehouse.to_uppercase();
         let database = database.map(str::to_uppercase);
         let schema = schema.map(str::to_uppercase);
 
@@ -147,7 +146,7 @@ impl Session {
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
-            warehouse,
+            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
             database,
             username,
             role,
@@ -162,7 +161,7 @@ impl Session {
     pub fn password_auth(
         connection: Arc<Connection>,
         account_identifier: &str,
-        warehouse: &str,
+        warehouse: Option<&str>,
         database: Option<&str>,
         schema: Option<&str>,
         username: &str,
@@ -171,7 +170,6 @@ impl Session {
     ) -> Self {
         let account_identifier = account_identifier.to_uppercase();
 
-        let warehouse = warehouse.to_uppercase();
         let database = database.map(str::to_uppercase);
         let schema = schema.map(str::to_uppercase);
 
@@ -184,7 +182,7 @@ impl Session {
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Password,
             account_identifier,
-            warehouse,
+            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
             database,
             username,
             role,
@@ -294,7 +292,10 @@ impl Session {
         &self,
         body: LoginRequest<T>,
     ) -> Result<AuthTokens, AuthError> {
-        let mut get_params = vec![("warehouse", self.warehouse.as_str())];
+        let mut get_params = Vec::new();
+        if let Some(warehouse) = &self.warehouse {
+            get_params.push(("warehouse", warehouse.as_str()));
+        }
 
         if let Some(database) = &self.database {
             get_params.push(("databaseName", database.as_str()));
