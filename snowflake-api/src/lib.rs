@@ -253,10 +253,12 @@ impl SnowflakeApi {
         let mut final_source_locs: Vec<String> = Vec::new();
         for src_path in src_locations {
             for entry in glob::glob(src_path).expect("Failed to read glob pattern") {
-                // fixme: unwrap
                 match entry {
-                    Ok(path) => final_source_locs.push(path.to_str().unwrap().to_string()),
-                    Err(e) => log::error!("{:?}", e),
+                    Ok(path) => match path.to_str() {
+                        Some(item) => final_source_locs.push(item.to_string()),
+                        None => return Err(SnowflakeApiError::InvalidLocalPath(src_path.clone())),
+                    },
+                    Err(_) => return Err(SnowflakeApiError::InvalidLocalPath(src_path.clone())),
                 }
             }
         }
@@ -286,8 +288,11 @@ impl SnowflakeApi {
         }
 
     while let Some(res) = set.join_next().await {
-        let idx: Result<(), SnowflakeApiError> = res.unwrap();
-        println!("Task {:?} completed", idx);
+        let result: Result<(), SnowflakeApiError> = res.unwrap();
+        if let Err(e) = result {
+            return Err(e);
+        }
+
     }
 
         Ok(())
