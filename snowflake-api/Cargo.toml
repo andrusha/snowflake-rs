@@ -20,7 +20,6 @@ async-trait = "0.1"
 base64 = "0.21"
 bytes = "1"
 futures = "0.3"
-glob = "0.3.1"
 log = "0.4"
 object_store = { version = "0.9", features = ["aws"] }
 regex = "1"
@@ -37,10 +36,12 @@ snowflake-jwt = { version = "0.3.0", optional = true }
 thiserror = "1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+# Do we want to add this dependency for everyone?
+glob = "0.3.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = "1"
 arrow = { version = "50", features = ["prettyprint"] }
 clap = { version = "4", features = ["derive"] }
 pretty_env_logger = "0.5"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
