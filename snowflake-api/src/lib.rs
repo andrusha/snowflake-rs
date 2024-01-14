@@ -14,18 +14,18 @@ use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use futures::future::try_join_all;
-use regex::Regex;
-use thiserror::Error;
 #[cfg(feature = "file")]
 use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "file")]
 use object_store::local::LocalFileSystem;
 #[cfg(feature = "file")]
 use object_store::ObjectStore;
-#[cfg(feature = "file")]
-use tokio::task::JoinSet;
+use regex::Regex;
+use thiserror::Error;
 #[cfg(feature = "file")]
 use tokio::sync::Mutex;
+#[cfg(feature = "file")]
+use tokio::task::JoinSet;
 
 use crate::connection::{Connection, ConnectionError};
 use responses::ExecResponse;
@@ -88,8 +88,7 @@ pub enum SnowflakeApiError {
     UnexpectedResponse,
 
     #[error("Missing feature: {0}")]
-    MissingFeature(String)
-
+    MissingFeature(String),
 }
 
 /// Container for query result.
@@ -233,7 +232,6 @@ impl SnowflakeApi {
         src_locations: &[String],
         info: AwsPutGetStageInfo,
     ) -> Result<(), SnowflakeApiError> {
-
         let (bucket_name, bucket_path) = info
             .location
             .split_once('/')
@@ -283,17 +281,15 @@ impl SnowflakeApi {
                 let temp_s3 = mutex1.lock().await;
                 temp_s3.put(&dest_path, fs.bytes().await?).await?;
                 Ok(())
-
             });
         }
 
-    while let Some(res) = set.join_next().await {
-        let result: Result<(), SnowflakeApiError> = res.unwrap();
-        if let Err(e) = result {
-            return Err(e);
+        while let Some(res) = set.join_next().await {
+            let result: Result<(), SnowflakeApiError> = res.unwrap();
+            if let Err(e) = result {
+                return Err(e);
+            }
         }
-
-    }
 
         Ok(())
     }
