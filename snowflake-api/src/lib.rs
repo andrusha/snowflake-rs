@@ -19,7 +19,7 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 use tokio::task::JoinSet;
-
+use tokio::sync::Mutex;
 
 use crate::connection::{Connection, ConnectionError};
 use responses::ExecResponse;
@@ -215,6 +215,20 @@ impl SnowflakeApi {
         info: AwsPutGetStageInfo,
     ) -> Result<(), SnowflakeApiError> {
 
+        let (bucket_name, bucket_path) = info
+            .location
+            .split_once('/')
+            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
+
+        let s3 = AmazonS3Builder::new()
+            .with_region(info.region)
+            .with_bucket_name(bucket_name)
+            .with_access_key_id(info.creds.aws_key_id)
+            .with_secret_access_key(info.creds.aws_secret_key)
+            .with_token(info.creds.aws_token)
+            .build()?;
+
+        let s3_mutex = Arc::new(Mutex::new(s3));
 
         // todo: security vulnerability, external system tells you which local files to upload
         let mut final_source_locs: Vec<String> = Vec::new();
@@ -227,43 +241,26 @@ impl SnowflakeApi {
                 }
             }
         }
-        let result = info
-            .location
-            .split_once('/')
-            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
 
-        let bucket_name = result.0.to_string();
-        let bucket_path = result.1.to_string();
-
+        let bucket_path = bucket_path.to_string();
         let mut set = JoinSet::new();
         for src_path in final_source_locs {
-            let bucket_name = bucket_name.clone();
+            let mutex1 = Arc::clone(&s3_mutex);
             let bucket_path = bucket_path.clone();
-            let region = info.region.clone();
-            let access_key_id = info.creds.aws_key_id.clone();
-            let secret_key = info.creds.aws_secret_key.clone();
-            let aws_token = info.creds.aws_token.clone();
             set.spawn(async move {
-                let bucket_path = bucket_path.clone();
-                let s3 = AmazonS3Builder::new()
-                    .with_region(region.clone())
-                    .with_bucket_name(bucket_name.clone())
-                    .with_access_key_id(access_key_id.clone())
-                    .with_secret_access_key(secret_key.clone())
-                    .with_token(aws_token.clone())
-                    .build()?;
                 let path = Path::new(&src_path);
                 let filename = path
                     .file_name()
                     .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
 
                 // fixme: unwrap
-                let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
+                let dest_path = format!("{}{}", bucket_path.clone(), filename.to_str().unwrap());
                 let dest_path = object_store::path::Path::parse(dest_path)?;
                 let src_path = object_store::path::Path::parse(src_path)?;
                 let fs = LocalFileSystem::new().get(&src_path).await?;
 
-                s3.put(&dest_path, fs.bytes().await?).await?;
+                let temp_s3 = mutex1.lock().await;
+                temp_s3.put(&dest_path, fs.bytes().await?).await?;
                 Ok(())
 
             });
