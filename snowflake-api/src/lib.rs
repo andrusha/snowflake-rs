@@ -266,6 +266,9 @@ impl SnowflakeApi {
         for src_path in final_source_locs {
             let mutex1 = Arc::clone(&s3_mutex);
             let bucket_path = bucket_path.clone();
+            while set.len() >= 5 {
+                set.join_next().await.unwrap().unwrap();
+            }
             set.spawn(async move {
                 let path = Path::new(&src_path);
                 let filename = path
