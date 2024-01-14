@@ -13,6 +13,7 @@ version = "0.6.0"
 
 [features]
 cert-auth = ["dep:snowflake-jwt"]
+file = ["dep:glob", "dep:tokio", "dep:object_store"]
 
 [dependencies]
 arrow = "50"
@@ -21,7 +22,7 @@ base64 = "0.21"
 bytes = "1"
 futures = "0.3"
 log = "0.4"
-object_store = { version = "0.9", features = ["aws"] }
+object_store = { version = "0.9", optional = true, features = ["aws"] }
 regex = "1"
 reqwest = { version = "0.11", default-features = false, features = [
     "gzip",
@@ -32,16 +33,16 @@ reqwest-middleware = "0.2"
 reqwest-retry = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-snowflake-jwt = { version = "0.3.0", optional = true }
 thiserror = "1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-# Do we want to add this dependency for everyone?
-glob = "0.3.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+snowflake-jwt = { version = "0.3.0", optional = true }
+glob = { version = "0.3.1", optional = true }
+tokio = { version = "1.35", optional = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = "1"
 arrow = { version = "50", features = ["prettyprint"] }
 clap = { version = "4", features = ["derive"] }
 pretty_env_logger = "0.5"
+tokio = { version = "1.35", features = ["macros", "rt-multi-thread"] }

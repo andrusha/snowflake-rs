@@ -5,6 +5,7 @@
 #![doc = include_str ! ("../README.md")]
 
 use std::io;
+#[cfg(feature = "file")]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,12 +14,17 @@ use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use futures::future::try_join_all;
-use object_store::aws::AmazonS3Builder;
-use object_store::local::LocalFileSystem;
-use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
+#[cfg(feature = "file")]
+use object_store::aws::AmazonS3Builder;
+#[cfg(feature = "file")]
+use object_store::local::LocalFileSystem;
+#[cfg(feature = "file")]
+use object_store::ObjectStore;
+#[cfg(feature = "file")]
 use tokio::task::JoinSet;
+#[cfg(feature = "file")]
 use tokio::sync::Mutex;
 
 use crate::connection::{Connection, ConnectionError};
@@ -27,6 +33,7 @@ use session::{AuthError, Session};
 
 use crate::connection::QueryType;
 use crate::requests::ExecRequest;
+#[cfg(feature = "file")]
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
 mod connection;
@@ -58,9 +65,11 @@ pub enum SnowflakeApiError {
     LocalIoError(#[from] io::Error),
 
     #[error(transparent)]
+    #[cfg(feature = "file")]
     ObjectStoreError(#[from] object_store::Error),
 
     #[error(transparent)]
+    #[cfg(feature = "file")]
     ObjectStorePathError(#[from] object_store::path::Error),
 
     #[error("Snowflake API error. Code: `{0}`. Message: `{1}`")]
@@ -77,6 +86,10 @@ pub enum SnowflakeApiError {
 
     #[error("Unexpected API response")]
     UnexpectedResponse,
+
+    #[error("Missing feature: {0}")]
+    MissingFeature(String)
+
 }
 
 /// Container for query result.
@@ -175,12 +188,16 @@ impl SnowflakeApi {
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
-            self.exec_put(sql).await.map(|_| QueryResult::Empty)
+            #[cfg(feature = "file")]
+            return self.exec_put(sql).await.map(|_| QueryResult::Empty);
+            #[cfg(not(feature = "file"))]
+            Err(SnowflakeApiError::MissingFeature("file".to_string()))
         } else {
             self.exec_arrow(sql).await
         }
     }
 
+    #[cfg(feature = "file")]
     async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
@@ -197,6 +214,7 @@ impl SnowflakeApi {
         }
     }
 
+    #[cfg(feature = "file")]
     async fn put(&self, resp: PutGetExecResponse) -> Result<(), SnowflakeApiError> {
         match resp.data.stage_info {
             PutGetStageInfo::Aws(info) => self.put_to_s3(&resp.data.src_locations, info).await,
@@ -209,6 +227,7 @@ impl SnowflakeApi {
         }
     }
 
+    #[cfg(feature = "file")]
     async fn put_to_s3(
         &self,
         src_locations: &[String],
