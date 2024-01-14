@@ -21,7 +21,7 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 - [x] AWS integration
 - [ ] GCloud integration
 - [ ] Azure integration
-- [ ] Parallel uploading of small files
+- [x] Parallel uploading of small files
 
 ## Why
 
