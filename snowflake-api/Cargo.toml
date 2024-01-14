@@ -20,6 +20,7 @@ async-trait = "0.1"
 base64 = "0.21"
 bytes = "1"
 futures = "0.3"
+glob = "0.3.1"
 log = "0.4"
 object_store = { version = "0.9", features = ["aws"] }
 regex = "1"

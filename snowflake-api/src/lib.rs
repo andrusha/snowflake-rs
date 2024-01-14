@@ -225,34 +225,31 @@ impl SnowflakeApi {
             .with_token(info.creds.aws_token)
             .build()?;
 
-        // I collect first to confirm all paths are valid for saving, this isnt the optimal aproach
-        // performance wise, but I feel like its well worth confirming a PUT is valid before
-        // sending
-        let filenames: Result<Vec<object_store::path::Path>, SnowflakeApiError> = src_locations
-            .iter()
-            .map(|x: &String| {
-                let filename = Path::new(x)
-                    .file_name()
-                    .ok_or_else(|| SnowflakeApiError::InvalidLocalPath(x.clone()))?;
-
-                let dest_filename = filename
-                    .to_str()
-                    .ok_or_else(|| SnowflakeApiError::InvalidLocalPath(x.clone()))?;
-                let dest_path = format!("{}{}", bucket_path, dest_filename);
-
-                object_store::path::Path::parse(dest_path)
-                    .map_err(|e| SnowflakeApiError::ObjectStorePathError(e))
-            })
-            .collect();
-        let clean_filenames = match filenames {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        };
-
         // todo: security vulnerability, external system tells you which local files to upload
-        for (src_path, dest_path) in src_locations.iter().zip(clean_filenames) {
+        let mut final_source_locs: Vec<String> = Vec::new();
+        for src_path in src_locations {
+            for entry in glob::glob(src_path).expect("Failed to read glob pattern") {
+                match entry {
+                    Ok(path) => final_source_locs.push(path.to_str().unwrap().to_string()),
+                    Err(e) => log::error!("{:?}", e),
+                }
+            }
+        }
+
+        for src_path in final_source_locs {
+            let path = Path::new(&src_path);
+            let filename = path
+                .file_name()
+                .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
+
+            // fixme: unwrap
+            let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
+            let dest_path = object_store::path::Path::parse(dest_path)?;
+
             let src_path = object_store::path::Path::parse(src_path)?;
+
             let fs = LocalFileSystem::new().get(&src_path).await?;
+
             s3.put(&dest_path, fs.bytes().await?).await?;
         }
 
