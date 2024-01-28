@@ -23,8 +23,6 @@ use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
 #[cfg(feature = "file")]
-use tokio::sync::Mutex;
-#[cfg(feature = "file")]
 use tokio::task::JoinSet;
 
 use crate::connection::{Connection, ConnectionError};
@@ -245,7 +243,7 @@ impl SnowflakeApi {
             .with_token(info.creds.aws_token)
             .build()?;
 
-        let s3_mutex = Arc::new(Mutex::new(s3));
+        let s3_arc = Arc::new(s3);
 
         // todo: security vulnerability, external system tells you which local files to upload
         let mut final_source_locs: Vec<String> = Vec::new();
@@ -264,11 +262,8 @@ impl SnowflakeApi {
         let bucket_path = bucket_path.to_string();
         let mut set = JoinSet::new();
         for src_path in final_source_locs {
-            let mutex1 = Arc::clone(&s3_mutex);
+            let arc1 = Arc::clone(&s3_arc);
             let bucket_path = bucket_path.clone();
-            while set.len() >= 5 {
-                set.join_next().await.unwrap().unwrap();
-            }
             set.spawn(async move {
                 let path = Path::new(&src_path);
                 let filename = path
@@ -281,8 +276,7 @@ impl SnowflakeApi {
                 let src_path = object_store::path::Path::parse(src_path)?;
                 let fs = LocalFileSystem::new().get(&src_path).await?;
 
-                let temp_s3 = mutex1.lock().await;
-                temp_s3.put(&dest_path, fs.bytes().await?).await?;
+                arc1.put(&dest_path, fs.bytes().await?).await?;
                 Ok(())
             });
         }
