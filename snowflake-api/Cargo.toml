@@ -13,6 +13,7 @@ version = "0.6.0"
 
 [features]
 cert-auth = ["dep:snowflake-jwt"]
+tracing = ["dep:reqwest-tracing"]
 
 [dependencies]
 arrow = "50"
@@ -36,6 +37,11 @@ snowflake-jwt = { version = "0.3.0", optional = true }
 thiserror = "1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+
+reqwest-tracing = { version = "0.4", features = [
+    "opentelemetry_0_21",
+], optional = true }
+
 
 [dev-dependencies]
 anyhow = "1"

@@ -90,9 +90,22 @@ impl Connection {
 
         let client = client.build()?;
 
-        let client = reqwest_middleware::ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build();
+        let mut client = reqwest_middleware::ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy));
+
+        #[cfg(feature = "tracing")]
+        {
+            use reqwest_middleware::{ClientBuilder, Extension};
+            use reqwest_tracing::{OtelName, SpanBackendWithUrl};
+
+            client = client
+                .with_init(Extension(OtelName(std::borrow::Cow::Borrowed(
+                    "snowflake-api",
+                ))))
+                .with(reqwest_tracing::TracingMiddleware::<SpanBackendWithUrl>::new())
+        }
+
+        let client = client.build();
 
         Ok(Connection { client })
     }
