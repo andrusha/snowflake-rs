@@ -6,7 +6,6 @@
 
 use std::io;
 #[cfg(feature = "file")]
-use std::path::Path;
 use std::sync::Arc;
 
 use arrow::datatypes::ToByteSlice;
@@ -17,15 +16,11 @@ use futures::future::try_join_all;
 #[cfg(feature = "file")]
 use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "file")]
-use object_store::local::LocalFileSystem;
-#[cfg(feature = "file")]
-use object_store::ObjectStore;
 use regex::Regex;
 use thiserror::Error;
-#[cfg(feature = "file")]
-use tokio::task::JoinSet;
 
 use crate::connection::{Connection, ConnectionError};
+use crate::helpers::{get_files, upload_files_parallel, upload_files_sequential};
 use responses::ExecResponse;
 use session::{AuthError, Session};
 
@@ -35,6 +30,7 @@ use crate::requests::ExecRequest;
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
 mod connection;
+mod helpers;
 mod requests;
 mod responses;
 mod session;
@@ -244,49 +240,13 @@ impl SnowflakeApi {
             .build()?;
 
         let s3_arc = Arc::new(s3);
+        const MAX_PARALLEL: i64 = 10;
+        const MAX_THRESHOLD: i64 = 10_000_000;
 
-        // todo: security vulnerability, external system tells you which local files to upload
-        let mut final_source_locs: Vec<String> = Vec::new();
-        for src_path in src_locations {
-            for entry in glob::glob(src_path).expect("Failed to read glob pattern") {
-                match entry {
-                    Ok(path) => match path.to_str() {
-                        Some(item) => final_source_locs.push(item.to_string()),
-                        None => return Err(SnowflakeApiError::InvalidLocalPath(src_path.clone())),
-                    },
-                    Err(_) => return Err(SnowflakeApiError::InvalidLocalPath(src_path.clone())),
-                }
-            }
-        }
-
+        let files = get_files(&src_locations, MAX_THRESHOLD)?;
         let bucket_path = bucket_path.to_string();
-        let mut set = JoinSet::new();
-        for src_path in final_source_locs {
-            let arc1 = Arc::clone(&s3_arc);
-            let bucket_path = bucket_path.clone();
-            set.spawn(async move {
-                let path = Path::new(&src_path);
-                let filename = path
-                    .file_name()
-                    .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
-
-                // fixme: unwrap
-                let dest_path = format!("{}{}", bucket_path.clone(), filename.to_str().unwrap());
-                let dest_path = object_store::path::Path::parse(dest_path)?;
-                let src_path = object_store::path::Path::parse(src_path)?;
-                let fs = LocalFileSystem::new().get(&src_path).await?;
-
-                arc1.put(&dest_path, fs.bytes().await?).await?;
-                Ok(())
-            });
-        }
-
-        while let Some(res) = set.join_next().await {
-            let result: Result<(), SnowflakeApiError> = res.unwrap();
-            if let Err(e) = result {
-                return Err(e);
-            }
-        }
+        upload_files_parallel(files.small_files, &bucket_path, &s3_arc, MAX_PARALLEL).await?;
+        upload_files_sequential(files.large_files, bucket_path, &s3_arc).await?;
 
         Ok(())
     }
