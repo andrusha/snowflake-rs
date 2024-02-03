@@ -3,6 +3,13 @@
     test(no_crate_inject)
 )]
 #![doc = include_str ! ("../README.md")]
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::module_name_repetitions,
+)]
+
 
 use std::io;
 use std::path::Path;
