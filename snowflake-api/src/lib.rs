@@ -125,7 +125,7 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(SnowflakeApi {
+        Ok(Self {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
@@ -156,7 +156,7 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(SnowflakeApi {
+        Ok(Self {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
@@ -180,7 +180,7 @@ impl SnowflakeApi {
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
-            self.exec_put(sql).await.map(|_| QueryResult::Empty)
+            self.exec_put(sql).await.map(|()| QueryResult::Empty)
         } else {
             self.exec_arrow(sql).await
         }

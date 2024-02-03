@@ -44,23 +44,23 @@ pub enum QueryType {
 impl QueryType {
     fn query_context(&self) -> QueryContext {
         match self {
-            QueryType::LoginRequest => QueryContext {
+            Self::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
                 accept_mime: "application/json",
             },
-            QueryType::TokenRequest => QueryContext {
+            Self::TokenRequest => QueryContext {
                 path: "/session/token-request",
                 accept_mime: "application/snowflake",
             },
-            QueryType::CloseSession => QueryContext {
+            Self::CloseSession => QueryContext {
                 path: "session",
                 accept_mime: "application/snowflake",
             },
-            QueryType::JsonQuery => QueryContext {
+            Self::JsonQuery => QueryContext {
                 path: "queries/v1/query-request",
                 accept_mime: "application/json",
             },
-            QueryType::ArrowQuery => QueryContext {
+            Self::ArrowQuery => QueryContext {
                 path: "queries/v1/query-request",
                 accept_mime: "application/snowflake",
             },
@@ -94,7 +94,7 @@ impl Connection {
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
-        Ok(Connection { client })
+        Ok(Self { client })
     }
 
     /// Perform request of given query type with extra body or parameters

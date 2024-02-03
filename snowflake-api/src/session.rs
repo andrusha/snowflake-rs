@@ -79,7 +79,7 @@ impl AuthToken {
         };
         let issued_on = Instant::now();
 
-        AuthToken {
+        Self {
             token,
             valid_for,
             issued_on,
@@ -149,13 +149,13 @@ impl Session {
         let role = role.map(str::to_uppercase);
         let private_key_pem = Some(private_key_pem.to_string());
 
-        Session {
+        Self {
             connection,
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
-            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
+            warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
@@ -186,12 +186,12 @@ impl Session {
         let password = Some(password.to_string());
         let role = role.map(str::to_uppercase);
 
-        Session {
+        Self {
             connection,
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Password,
             account_identifier,
-            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
+            warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
@@ -207,8 +207,7 @@ impl Session {
         if auth_tokens.is_none()
             || auth_tokens
                 .as_ref()
-                .map(|at| at.master_token.is_expired())
-                .unwrap_or(false)
+                .is_some_and(|at| at.master_token.is_expired())
         {
             // Create new session if tokens are absent or can not be exchange
             let tokens = match self.auth_type {
@@ -227,8 +226,7 @@ impl Session {
             *auth_tokens = Some(tokens);
         } else if auth_tokens
             .as_ref()
-            .map(|at| at.session_token.is_expired())
-            .unwrap_or(false)
+            .is_some_and(|at| at.session_token.is_expired())
         {
             // Renew old session token
             let tokens = self.renew().await?;
@@ -319,7 +317,7 @@ impl Session {
         }
 
         if let Some(role) = &self.role {
-            get_params.push(("roleName", role.as_str()))
+            get_params.push(("roleName", role.as_str()));
         }
 
         let resp = self
@@ -358,7 +356,7 @@ impl Session {
         LoginRequestCommon {
             client_app_id: "Go".to_string(),
             client_app_version: "1.6.22".to_string(),
-            svn_revision: "".to_string(),
+            svn_revision: String::new(),
             account_name: self.account_identifier.clone(),
             login_name: self.username.clone(),
             session_parameters: SessionParameters {
