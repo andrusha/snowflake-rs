@@ -75,7 +75,9 @@ impl AuthToken {
         let valid_for = if validity_in_seconds < 0 {
             Duration::from_secs(u64::MAX)
         } else {
-            Duration::from_secs(validity_in_seconds as u64)
+            // Note for reviewer: I beliebe this only fails on negative numbers. I imagine we will
+            // never get negative numbers, but if we do, is MAX or 0 a more sane default?
+            Duration::from_secs(u64::try_from(validity_in_seconds).unwrap_or(u64::MAX))
         };
         let issued_on = Instant::now();
 

@@ -8,6 +8,9 @@
     clippy::must_use_candidate,
     clippy::missing_errors_doc,
     clippy::module_name_repetitions,
+    clippy::struct_field_names,
+    clippy::future_not_send, // This one seems like something we should eventually fix
+    clippy::missing_panics_doc
 )]
 
 

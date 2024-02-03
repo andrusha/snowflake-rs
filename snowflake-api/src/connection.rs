@@ -42,7 +42,7 @@ pub enum QueryType {
 }
 
 impl QueryType {
-    fn query_context(&self) -> QueryContext {
+    const fn query_context(&self) -> QueryContext {
         match self {
             Self::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
