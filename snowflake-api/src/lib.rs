@@ -13,7 +13,6 @@
     clippy::missing_panics_doc
 )]
 
-
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
