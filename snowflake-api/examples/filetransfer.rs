@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
             println!("Nothing was returned");
         }
         QueryResult::Json(j) => {
-            println!("{}", j.to_string());
+            println!("{j}");
         }
     }
 
