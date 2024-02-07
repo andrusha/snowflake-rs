@@ -15,7 +15,7 @@ version = "0.6.0"
 cert-auth = ["dep:snowflake-jwt"]
 
 [dependencies]
-arrow = "50"
+arrow = "47"
 async-trait = "0.1"
 base64 = "0.21"
 bytes = "1"
@@ -39,7 +39,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 anyhow = "1"
-arrow = { version = "50", features = ["prettyprint"] }
+arrow = { version = "47", features = ["prettyprint"] }
 clap = { version = "4", features = ["derive"] }
 pretty_env_logger = "0.5"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
