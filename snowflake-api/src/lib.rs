@@ -126,7 +126,7 @@ pub struct SnowflakeApiBuilder {
 }
 
 impl SnowflakeApiBuilder {
-    pub const fn new(auth: AuthArgs) -> Self {
+    pub fn new(auth: AuthArgs) -> Self {
         Self { auth, client: None }
     }
 
