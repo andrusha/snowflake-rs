@@ -95,7 +95,7 @@ impl Connection {
     ///
     /// This is not intended to be called directly, but is used by `SnowflakeApiBuilder::with_client`
     pub fn new_with_middware(client: ClientWithMiddleware) -> Self {
-        Connection { client }
+        Self { client }
     }
 
     pub fn default_client_builder() -> reqwest_middleware::ClientBuilder {
