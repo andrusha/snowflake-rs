@@ -119,13 +119,14 @@ pub struct CertificateArgs {
     pub private_key_pem: String,
 }
 
+#[must_use]
 pub struct SnowflakeApiBuilder {
     pub auth: AuthArgs,
     client: Option<ClientWithMiddleware>,
 }
 
 impl SnowflakeApiBuilder {
-    pub fn new(auth: AuthArgs) -> Self {
+    pub const fn new(auth: AuthArgs) -> Self {
         Self { auth, client: None }
     }
 

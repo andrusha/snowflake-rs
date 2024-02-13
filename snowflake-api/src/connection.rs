@@ -1,5 +1,4 @@
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, ClientBuilder};
 use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
