@@ -1,4 +1,5 @@
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
+use reqwest::{Client, ClientBuilder};
 use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
@@ -77,9 +78,28 @@ pub struct Connection {
 
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
+        let client = Self::default_client_builder();
+
+        Ok(Self::new_with_middware(client.build()))
+    }
+
+    /// Allow a user to provide their own middleware
+    ///
+    /// Users can provide their own middleware to the connection like this:
+    ///
+    /// ```rust
+    /// let mut builder = Connection::default_client_builder();
+    ///
+    ///
+    /// let connection = Connection::new_with_middware(client);
+    /// ```
+    pub fn new_with_middware(client: ClientWithMiddleware) -> Self {
+        Connection { client }
+    }
+
+    pub fn default_client_builder() -> reqwest_middleware::ClientBuilder {
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
 
-        // use builder to fail safely, unlike client new
         let client = reqwest::ClientBuilder::new()
             .user_agent("Rust/0.0.1")
             .gzip(true)
@@ -88,26 +108,10 @@ impl Connection {
         #[cfg(debug_assertions)]
         let client = client.connection_verbose(true);
 
-        let client = client.build()?;
+        let client = client.build().unwrap();
 
-        let mut client = reqwest_middleware::ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy));
-
-        #[cfg(feature = "tracing")]
-        {
-            use reqwest_middleware::{ClientBuilder, Extension};
-            use reqwest_tracing::{OtelName, SpanBackendWithUrl};
-
-            client = client
-                .with_init(Extension(OtelName(std::borrow::Cow::Borrowed(
-                    "snowflake-api",
-                ))))
-                .with(reqwest_tracing::TracingMiddleware::<SpanBackendWithUrl>::new())
-        }
-
-        let client = client.build();
-
-        Ok(Connection { client })
+        reqwest_middleware::ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
     }
 
     /// Perform request of given query type with extra body or parameters
