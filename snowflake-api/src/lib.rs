@@ -3,6 +3,15 @@
     test(no_crate_inject)
 )]
 #![doc = include_str ! ("../README.md")]
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::module_name_repetitions,
+    clippy::struct_field_names,
+    clippy::future_not_send, // This one seems like something we should eventually fix
+    clippy::missing_panics_doc
+)]
 
 use std::io;
 use std::path::Path;
@@ -196,7 +205,7 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(SnowflakeApi {
+        Ok(Self {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
@@ -227,7 +236,7 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(SnowflakeApi {
+        Ok(Self {
             connection: Arc::clone(&connection),
             session,
             account_identifier,
@@ -251,7 +260,7 @@ impl SnowflakeApi {
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
-            self.exec_put(sql).await.map(|_| QueryResult::Empty)
+            self.exec_put(sql).await.map(|()| QueryResult::Empty)
         } else {
             self.exec_arrow(sql).await
         }

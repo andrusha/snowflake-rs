@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
                     println!("{}", pretty_format_batches(&a).unwrap());
                 }
                 QueryResult::Json(j) => {
-                    println!("{}", j.to_string());
+                    println!("{j}");
                 }
                 QueryResult::Empty => {
                     println!("Query finished successfully")
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         }
         Output::Json => {
             let res = api.exec_json(&args.sql).await?;
-            println!("{}", res.to_string());
+            println!("{res}");
         }
         Output::Query => {
             let res = api.exec_response(&args.sql).await?;
