@@ -89,10 +89,11 @@ impl Connection {
     ///
     /// ```rust
     /// let mut builder = Connection::default_client_builder();
-    ///
-    ///
-    /// let connection = Connection::new_with_middware(client);
+    /// ...<modify the builder here>
+    /// let connection = Connection::new_with_middware(client.build());
     /// ```
+    ///
+    /// This is not intended to be called directly, but is used by `SnowflakeApiBuilder::with_client`
     pub fn new_with_middware(client: ClientWithMiddleware) -> Self {
         Connection { client }
     }
