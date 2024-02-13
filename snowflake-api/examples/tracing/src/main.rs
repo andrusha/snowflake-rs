@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         }),
     };
 
-    let mut client = Connection::default_client_builder();
+    let mut client = Connection::default_client_builder()?;
     client = client
         .with_init(Extension(OtelName(std::borrow::Cow::Borrowed(
             "snowflake-api",

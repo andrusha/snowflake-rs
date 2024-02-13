@@ -78,7 +78,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
-        let client = Self::default_client_builder();
+        let client = Self::default_client_builder()?;
 
         Ok(Self::new_with_middware(client.build()))
     }
@@ -98,7 +98,7 @@ impl Connection {
         Self { client }
     }
 
-    pub fn default_client_builder() -> reqwest_middleware::ClientBuilder {
+    pub fn default_client_builder() -> Result<reqwest_middleware::ClientBuilder, ConnectionError> {
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
 
         let client = reqwest::ClientBuilder::new()
@@ -109,10 +109,10 @@ impl Connection {
         #[cfg(debug_assertions)]
         let client = client.connection_verbose(true);
 
-        let client = client.build().unwrap();
+        let client = client.build()?;
 
-        reqwest_middleware::ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        Ok(reqwest_middleware::ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy)))
     }
 
     /// Perform request of given query type with extra body or parameters
