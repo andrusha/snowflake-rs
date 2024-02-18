@@ -91,7 +91,7 @@ pub async fn upload_files_parallel(
     Ok(())
 }
 
-/// This function uploads files in parallel, useful for files above the threshold
+/// This function uploads files sequentially, useful for files above the threshold
 pub async fn upload_files_sequential(
     files: Vec<String>,
     bucket_path: String,

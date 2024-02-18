@@ -22,7 +22,7 @@ use futures::future::try_join_all;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
-use crate::helpers::{get_files, upload_files_parallel, upload_files_sequential};
+use crate::upload_files::{get_files, upload_files_parallel, upload_files_sequential};
 use responses::ExecResponse;
 use session::{AuthError, Session};
 
@@ -38,7 +38,7 @@ use regex::Regex;
 use object_store::aws::AmazonS3Builder;
 
 mod connection;
-mod helpers;
+mod upload_files;
 mod requests;
 mod responses;
 mod session;

@@ -12,8 +12,9 @@ repository = "https://github.com/mycelial/snowflake-rs"
 version = "0.6.0"
 
 [features]
+default = ["cert-auth", "file"]
 cert-auth = ["dep:snowflake-jwt"]
-file = ["dep:glob", "dep:tokio", "dep:object_store"]
+file = ["dep:glob", "dep:object_store"]
 
 [dependencies]
 arrow = "50"
@@ -38,7 +39,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 snowflake-jwt = { version = "0.3.0", optional = true }
 glob = { version = "0.3", optional = true }
-tokio = { version = "1.35", optional = true, features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = "1"
