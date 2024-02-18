@@ -15,8 +15,8 @@ pub struct UploadFiles {
 }
 
 impl UploadFiles {
-    fn new(threshold: i64) -> UploadFiles {
-        UploadFiles {
+    fn new(threshold: i64) -> Self {
+        Self {
             small_files: Vec::new(),
             large_files: Vec::new(),
             // If the threshold is negative set it to 0, which means that all files will be considered large
@@ -36,21 +36,18 @@ impl UploadFiles {
 }
 
 // todo: security vulnerability, external system tells you which local files to upload
-pub fn get_files(
-    src_locations: &[String],
-    threshold: i64,
-) -> Result<UploadFiles, SnowflakeApiError> {
-    let mut files = UploadFiles::new(threshold);
-    for src_path in src_locations {
-        for entry in glob::glob(src_path).unwrap() {
-            if let Ok(path) = entry {
-                if let Some(item) = path.to_str() {
-                    files.push_file(item.to_string());
-                }
-            }
-        }
+// For right now this function ignores errors, im not sure if that is the best approach
+pub fn get_files(src_locations: &[String], threshold: i64) -> UploadFiles {
+    let mut upload_files = UploadFiles::new(threshold);
+    let locations = src_locations
+        .iter()
+        .filter_map(|src_path| glob::glob(src_path).ok())
+        .flat_map(|paths| paths.filter_map(Result::ok));
+
+    for path in locations.filter_map(|path| path.to_str().map(String::from)) {
+        upload_files.push_file(path);
     }
-    Ok(files)
+    upload_files
 }
 
 /// This function uploads files in parallel, useful for files below the threshold
@@ -60,7 +57,7 @@ pub async fn upload_files_parallel(
     files: Vec<String>,
     bucket_path: &str,
     s3_arc: &Arc<AmazonS3>,
-    max_parallel: usize
+    _max_parallel: usize,
 ) -> Result<(), SnowflakeApiError> {
     let mut set: JoinSet<Result<(), SnowflakeApiError>> = JoinSet::new();
     for src_path in files {

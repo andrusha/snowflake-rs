@@ -13,12 +13,12 @@
     clippy::missing_panics_doc
 )]
 
-use std::io;
 use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use futures::future::try_join_all;
+use std::io;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
@@ -31,17 +31,17 @@ use crate::requests::ExecRequest;
 #[cfg(feature = "file")]
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 #[cfg(feature = "file")]
-use std::sync::Arc;
+use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "file")]
 use regex::Regex;
 #[cfg(feature = "file")]
-use object_store::aws::AmazonS3Builder;
+use std::sync::Arc;
 
 mod connection;
-mod upload_files;
 mod requests;
 mod responses;
 mod session;
+mod upload_files;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -237,6 +237,11 @@ impl SnowflakeApi {
         src_locations: &[String],
         info: AwsPutGetStageInfo,
     ) -> Result<(), SnowflakeApiError> {
+        // These constants are based on the snowflake website
+        // https://docs.snowflake.com/en/sql-reference/sql/put
+        const MAX_PARALLEL: usize = 4;
+        const MAX_THRESHOLD: i64 = 64_000_000;
+
         let (bucket_name, bucket_path) = info
             .location
             .split_once('/')
@@ -251,12 +256,8 @@ impl SnowflakeApi {
             .build()?;
 
         let s3_arc = Arc::new(s3);
-        // These constants are based on the snowflake website
-        // https://docs.snowflake.com/en/sql-reference/sql/put
-        const MAX_PARALLEL: usize = 4;
-        const MAX_THRESHOLD: i64 = 64_000_000;
 
-        let files = get_files(src_locations, MAX_THRESHOLD)?;
+        let files = get_files(src_locations, MAX_THRESHOLD);
         let bucket_path = bucket_path.to_string();
         upload_files_parallel(files.small_files, &bucket_path, &s3_arc, MAX_PARALLEL).await?;
         upload_files_sequential(files.large_files, &bucket_path, &s3_arc).await?;

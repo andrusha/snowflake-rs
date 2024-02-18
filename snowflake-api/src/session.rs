@@ -219,7 +219,6 @@ impl Session {
                         self.create(self.cert_request_body()?).await
                     } else {
                         Err(AuthError::MissingCertificate)
-
                     }
                 }
                 AuthType::Password => {
