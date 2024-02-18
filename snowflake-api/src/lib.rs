@@ -74,6 +74,10 @@ pub enum SnowflakeApiError {
     #[cfg(feature = "file")]
     ObjectStorePathError(#[from] object_store::path::Error),
 
+    #[error(transparent)]
+    #[cfg(feature = "file")]
+    TokioTaskJoinError(#[from] tokio::task::JoinError),
+
     #[error("Snowflake API error. Code: `{0}`. Message: `{1}`")]
     ApiError(String, String),
 
@@ -193,9 +197,8 @@ impl SnowflakeApi {
             return self.exec_put(sql).await.map(|()| QueryResult::Empty);
             #[cfg(not(feature = "file"))]
             return Err(SnowflakeApiError::MissingFeature("file".to_string()));
-        } else {
-            self.exec_arrow(sql).await
         }
+        self.exec_arrow(sql).await
     }
 
     #[cfg(feature = "file")]
@@ -248,14 +251,15 @@ impl SnowflakeApi {
             .build()?;
 
         let s3_arc = Arc::new(s3);
-        const MAX_PARALLEL: i64 = 10;
-        const MAX_THRESHOLD: i64 = 10_000_000;
+        // These constants are based on the snowflake website
+        // https://docs.snowflake.com/en/sql-reference/sql/put
+        const MAX_PARALLEL: usize = 4;
+        const MAX_THRESHOLD: i64 = 64_000_000;
 
         let files = get_files(&src_locations, MAX_THRESHOLD)?;
         let bucket_path = bucket_path.to_string();
         upload_files_parallel(files.small_files, &bucket_path, &s3_arc, MAX_PARALLEL).await?;
-        upload_files_sequential(files.large_files, bucket_path, &s3_arc).await?;
-
+        upload_files_sequential(files.large_files, &bucket_path, &s3_arc).await?;
         Ok(())
     }
 

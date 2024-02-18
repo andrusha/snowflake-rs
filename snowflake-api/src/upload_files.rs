@@ -58,23 +58,22 @@ pub fn get_files(
 /// checked and when it is uploaded
 pub async fn upload_files_parallel(
     files: Vec<String>,
-    bucket_path: &String,
+    bucket_path: &str,
     s3_arc: &Arc<AmazonS3>,
-    max_parallel: i64
+    max_parallel: usize
 ) -> Result<(), SnowflakeApiError> {
-    let mut set = JoinSet::new();
+    let mut set: JoinSet<Result<(), SnowflakeApiError>> = JoinSet::new();
     for src_path in files {
         let arc1 = Arc::clone(&s3_arc);
-        let bucket_path = bucket_path.clone();
+        let bucket_path = bucket_path.to_owned();
         set.spawn(async move {
-            let path = Path::new(&src_path);
-            let filename = path
+            let filename = Path::new(&src_path)
                 .file_name()
+                .and_then(|f| f.to_str())
                 .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
 
-            // fixme: unwrap
-            let dest_path = format!("{}{}", bucket_path.clone(), filename.to_str().unwrap());
-            let dest_path = object_store::path::Path::parse(dest_path)?;
+            let dest_path_str = format!("{}{}", bucket_path.clone(), filename);
+            let dest_path = object_store::path::Path::parse(dest_path_str)?;
             let src_path = object_store::path::Path::parse(src_path)?;
             let fs = LocalFileSystem::new().get(&src_path).await?;
 
@@ -83,7 +82,7 @@ pub async fn upload_files_parallel(
         });
     }
     while let Some(res) = set.join_next().await {
-        let result: Result<(), SnowflakeApiError> = res.unwrap();
+        let result = res?;
         if let Err(e) = result {
             return Err(e);
         }
@@ -94,7 +93,7 @@ pub async fn upload_files_parallel(
 /// This function uploads files sequentially, useful for files above the threshold
 pub async fn upload_files_sequential(
     files: Vec<String>,
-    bucket_path: String,
+    bucket_path: &str,
     s3_arc: &Arc<AmazonS3>,
 ) -> Result<(), SnowflakeApiError> {
     let arc1 = Arc::clone(&s3_arc);
