@@ -256,7 +256,7 @@ impl SnowflakeApi {
         const MAX_PARALLEL: usize = 4;
         const MAX_THRESHOLD: i64 = 64_000_000;
 
-        let files = get_files(&src_locations, MAX_THRESHOLD)?;
+        let files = get_files(src_locations, MAX_THRESHOLD)?;
         let bucket_path = bucket_path.to_string();
         upload_files_parallel(files.small_files, &bucket_path, &s3_arc, MAX_PARALLEL).await?;
         upload_files_sequential(files.large_files, &bucket_path, &s3_arc).await?;

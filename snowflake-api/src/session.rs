@@ -215,10 +215,12 @@ impl Session {
             let tokens = match self.auth_type {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
-                    #[cfg(feature = "cert-auth")]
-                    return self.create(self.cert_request_body()?).await;
-                    #[cfg(not(feature = "cert-auth"))]
-                    return Err(AuthError::MissingCertificate);
+                    if cfg!(feature = "cert-auth") {
+                        self.create(self.cert_request_body()?).await
+                    } else {
+                        Err(AuthError::MissingCertificate)
+
+                    }
                 }
                 AuthType::Password => {
                     log::info!("Starting session with password authentication");

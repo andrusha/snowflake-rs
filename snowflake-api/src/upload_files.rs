@@ -64,7 +64,7 @@ pub async fn upload_files_parallel(
 ) -> Result<(), SnowflakeApiError> {
     let mut set: JoinSet<Result<(), SnowflakeApiError>> = JoinSet::new();
     for src_path in files {
-        let arc1 = Arc::clone(&s3_arc);
+        let arc1 = Arc::clone(s3_arc);
         let bucket_path = bucket_path.to_owned();
         set.spawn(async move {
             let filename = Path::new(&src_path)
@@ -81,11 +81,8 @@ pub async fn upload_files_parallel(
             Ok(())
         });
     }
-    while let Some(res) = set.join_next().await {
-        let result = res?;
-        if let Err(e) = result {
-            return Err(e);
-        }
+    while let Some(result) = set.join_next().await {
+        result??;
     }
     Ok(())
 }
@@ -96,7 +93,7 @@ pub async fn upload_files_sequential(
     bucket_path: &str,
     s3_arc: &Arc<AmazonS3>,
 ) -> Result<(), SnowflakeApiError> {
-    let arc1 = Arc::clone(&s3_arc);
+    let arc1 = Arc::clone(s3_arc);
     for src_path in files {
         let path = Path::new(&src_path);
         let filename = path
@@ -104,7 +101,7 @@ pub async fn upload_files_sequential(
             .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
 
         // fixme: unwrap
-        let dest_path = format!("{}{}", bucket_path.clone(), filename.to_str().unwrap());
+        let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
         let dest_path = object_store::path::Path::parse(dest_path)?;
         let src_path = object_store::path::Path::parse(src_path)?;
         let fs = LocalFileSystem::new().get(&src_path).await?;
