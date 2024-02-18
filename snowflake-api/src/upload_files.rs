@@ -50,6 +50,27 @@ pub fn get_files(src_locations: &[String], threshold: i64) -> UploadFiles {
     upload_files
 }
 
+struct FileUpload {
+    dest_path: object_store::path::Path,
+    bytes: bytes::Bytes,
+}
+
+impl FileUpload {
+    async fn from_source(src_path: &str, bucket_path: &str) -> Result<Self, SnowflakeApiError> {
+        let filename = Path::new(&src_path)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.to_owned()))?;
+
+        let dest_path_str = format!("{bucket_path}{filename}");
+        let dest_path = object_store::path::Path::parse(dest_path_str)?;
+        let src_path = object_store::path::Path::parse(src_path)?;
+        let fs = LocalFileSystem::new().get(&src_path).await?;
+        let bytes = fs.bytes().await?;
+        Ok(Self { dest_path, bytes })
+    }
+}
+
 /// This function uploads files in parallel, useful for files below the threshold
 /// One potential issue is that file size could be changed between when the file is
 /// checked and when it is uploaded
@@ -64,17 +85,8 @@ pub async fn upload_files_parallel(
         let arc1 = Arc::clone(s3_arc);
         let bucket_path = bucket_path.to_owned();
         set.spawn(async move {
-            let filename = Path::new(&src_path)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
-
-            let dest_path_str = format!("{}{}", bucket_path.clone(), filename);
-            let dest_path = object_store::path::Path::parse(dest_path_str)?;
-            let src_path = object_store::path::Path::parse(src_path)?;
-            let fs = LocalFileSystem::new().get(&src_path).await?;
-
-            arc1.put(&dest_path, fs.bytes().await?).await?;
+            let to_upload = FileUpload::from_source(&src_path, &bucket_path).await?;
+            arc1.put(&to_upload.dest_path, to_upload.bytes).await?;
             Ok(())
         });
     }
@@ -92,18 +104,8 @@ pub async fn upload_files_sequential(
 ) -> Result<(), SnowflakeApiError> {
     let arc1 = Arc::clone(s3_arc);
     for src_path in files {
-        let path = Path::new(&src_path);
-        let filename = path
-            .file_name()
-            .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
-
-        // fixme: unwrap
-        let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
-        let dest_path = object_store::path::Path::parse(dest_path)?;
-        let src_path = object_store::path::Path::parse(src_path)?;
-        let fs = LocalFileSystem::new().get(&src_path).await?;
-
-        arc1.put(&dest_path, fs.bytes().await?).await?;
+        let to_upload = FileUpload::from_source(&src_path, bucket_path).await?;
+        arc1.put(&to_upload.dest_path, to_upload.bytes).await?;
     }
     Ok(())
 }
