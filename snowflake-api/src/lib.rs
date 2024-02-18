@@ -5,18 +5,11 @@
 #![doc = include_str ! ("../README.md")]
 
 use std::io;
-#[cfg(feature = "file")]
-use std::sync::Arc;
-
 use arrow::datatypes::ToByteSlice;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use futures::future::try_join_all;
-#[cfg(feature = "file")]
-use object_store::aws::AmazonS3Builder;
-#[cfg(feature = "file")]
-use regex::Regex;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
@@ -28,6 +21,12 @@ use crate::connection::QueryType;
 use crate::requests::ExecRequest;
 #[cfg(feature = "file")]
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
+#[cfg(feature = "file")]
+use std::sync::Arc;
+#[cfg(feature = "file")]
+use regex::Regex;
+#[cfg(feature = "file")]
+use object_store::aws::AmazonS3Builder;
 
 mod connection;
 mod helpers;
