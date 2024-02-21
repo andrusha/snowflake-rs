@@ -12,6 +12,7 @@ repository = "https://github.com/mycelial/snowflake-rs"
 version = "0.6.0"
 
 [features]
+default = ["cert-auth"]
 cert-auth = ["dep:snowflake-jwt"]
 
 [dependencies]
