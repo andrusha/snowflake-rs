@@ -26,6 +26,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
 use regex::Regex;
+use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
@@ -36,7 +37,7 @@ use crate::connection::QueryType;
 use crate::requests::ExecRequest;
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
-mod connection;
+pub mod connection;
 mod requests;
 mod responses;
 mod session;
@@ -93,6 +94,84 @@ pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
     Json(serde_json::Value),
     Empty,
+}
+
+pub struct AuthArgs {
+    pub account_identifier: String,
+    pub warehouse: Option<String>,
+    pub database: Option<String>,
+    pub schema: Option<String>,
+    pub username: String,
+    pub role: Option<String>,
+    pub auth_type: AuthType,
+}
+
+pub enum AuthType {
+    Password(PasswordArgs),
+    Certificate(CertificateArgs),
+}
+
+pub struct PasswordArgs {
+    pub password: String,
+}
+
+pub struct CertificateArgs {
+    pub private_key_pem: String,
+}
+
+#[must_use]
+pub struct SnowflakeApiBuilder {
+    pub auth: AuthArgs,
+    client: Option<ClientWithMiddleware>,
+}
+
+impl SnowflakeApiBuilder {
+    pub fn new(auth: AuthArgs) -> Self {
+        Self { auth, client: None }
+    }
+
+    pub fn with_client(mut self, client: ClientWithMiddleware) -> Self {
+        self.client = Some(client);
+        self
+    }
+
+    pub fn build(self) -> Result<SnowflakeApi, SnowflakeApiError> {
+        let connection = match self.client {
+            Some(client) => Arc::new(Connection::new_with_middware(client)),
+            None => Arc::new(Connection::new()?),
+        };
+
+        let session = match self.auth.auth_type {
+            AuthType::Password(args) => Session::password_auth(
+                Arc::clone(&connection),
+                &self.auth.account_identifier,
+                self.auth.warehouse.as_deref(),
+                self.auth.database.as_deref(),
+                self.auth.schema.as_deref(),
+                &self.auth.username,
+                self.auth.role.as_deref(),
+                &args.password,
+            ),
+            AuthType::Certificate(args) => Session::cert_auth(
+                Arc::clone(&connection),
+                &self.auth.account_identifier,
+                self.auth.warehouse.as_deref(),
+                self.auth.database.as_deref(),
+                self.auth.schema.as_deref(),
+                &self.auth.username,
+                self.auth.role.as_deref(),
+                &args.private_key_pem,
+            ),
+        };
+
+        let account_identifier = self.auth.account_identifier.to_uppercase();
+
+        Ok(SnowflakeApi {
+            connection: Arc::clone(&connection),
+            session,
+            account_identifier,
+        })
+    }
 }
 
 /// Snowflake API, keeps connection pool and manages session for you
