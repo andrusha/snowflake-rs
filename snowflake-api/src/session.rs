@@ -34,6 +34,8 @@ pub enum AuthError {
     #[error("Unexpected API response")]
     UnexpectedResponse,
 
+    // todo: add code mapping to meaningful message and/or refer to docs
+    //   eg https://docs.snowflake.com/en/user-guide/key-pair-auth-troubleshooting
     #[error("Failed to authenticate. Error code: {0}. Message: {1}")]
     AuthFailed(String, String),
 
@@ -261,7 +263,7 @@ impl Session {
             match resp {
                 AuthResponse::Close(_) => Ok(()),
                 AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                    e.data.error_code,
+                    e.code.unwrap_or_default(),
                     e.message.unwrap_or_default(),
                 )),
                 _ => Err(AuthError::UnexpectedResponse),
@@ -348,7 +350,7 @@ impl Session {
                 })
             }
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                e.data.error_code,
+                e.code.unwrap_or_default(),
                 e.message.unwrap_or_default(),
             )),
             _ => Err(AuthError::UnexpectedResponse),
@@ -409,7 +411,7 @@ impl Session {
                     })
                 }
                 AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                    e.data.error_code,
+                    e.code.unwrap_or_default(),
                     e.message.unwrap_or_default(),
                 )),
                 _ => Err(AuthError::UnexpectedResponse),
