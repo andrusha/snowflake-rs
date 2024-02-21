@@ -85,12 +85,12 @@ impl Connection {
     /// Allow a user to provide their own middleware
     ///
     /// Users can provide their own middleware to the connection like this:
-    ///
+    /// ```rust
     /// use snowflake_api::connection::Connection;
     /// let mut client = Connection::default_client_builder();
     ///  // modify the client builder here
     /// let connection = Connection::new_with_middware(client.unwrap().build());
-    ///
+    /// ```
     /// This is not intended to be called directly, but is used by `SnowflakeApiBuilder::with_client`
     pub fn new_with_middware(client: ClientWithMiddleware) -> Self {
         Self { client }
