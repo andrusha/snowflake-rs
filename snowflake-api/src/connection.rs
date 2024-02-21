@@ -86,7 +86,7 @@ impl Connection {
     ///
     /// Users can provide their own middleware to the connection like this:
     ///
-    /// ```rust
+    /// ```ignore
     /// let mut builder = Connection::default_client_builder();
     /// ...<modify the builder here>
     /// let connection = Connection::new_with_middware(client.build());
