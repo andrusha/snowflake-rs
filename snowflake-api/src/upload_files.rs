@@ -5,6 +5,7 @@ use object_store::ObjectStore;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 /// Sorts upload files by whether they are larger or smaller than the threshold
@@ -78,15 +79,19 @@ pub async fn upload_files_parallel(
     files: Vec<String>,
     bucket_path: &str,
     s3_arc: &Arc<AmazonS3>,
-    _max_parallel: usize,
+    max_parallel: usize,
 ) -> Result<(), SnowflakeApiError> {
+    let semaphore = Arc::new(Semaphore::new(max_parallel));
     let mut set: JoinSet<Result<(), SnowflakeApiError>> = JoinSet::new();
     for src_path in files {
         let arc1 = Arc::clone(s3_arc);
         let bucket_path = bucket_path.to_owned();
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
         set.spawn(async move {
             let to_upload = FileUpload::from_source(&src_path, &bucket_path).await?;
             arc1.put(&to_upload.dest_path, to_upload.bytes).await?;
+            // Drop the permit, so more tasks can be created.
+            drop(permit);
             Ok(())
         });
     }
