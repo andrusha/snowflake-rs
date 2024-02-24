@@ -18,12 +18,10 @@ use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use futures::future::try_join_all;
-use std::io;
 use object_store::aws::AmazonS3Builder;
-use object_store::local::LocalFileSystem;
-use object_store::ObjectStore;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
+use std::io;
 use thiserror::Error;
 
 use crate::connection::{Connection, ConnectionError};
@@ -35,10 +33,6 @@ use crate::connection::QueryType;
 use crate::requests::ExecRequest;
 #[cfg(feature = "file")]
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
-#[cfg(feature = "file")]
-use object_store::aws::AmazonS3Builder;
-#[cfg(feature = "file")]
-use regex::Regex;
 #[cfg(feature = "file")]
 use std::sync::Arc;
 
@@ -181,11 +175,11 @@ impl SnowflakeApiBuilder {
 
         let account_identifier = self.auth.account_identifier.to_uppercase();
 
-        Ok(SnowflakeApi {
-            connection: Arc::clone(&connection),
+        Ok(SnowflakeApi::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
     }
 }
 
@@ -194,9 +188,24 @@ pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
     account_identifier: String,
+    // These two fields are used for PUT requests
+    // The defaults used can be found here:
+    // https://docs.snowflake.com/en/sql-reference/sql/put
+    max_parallel_uploads: usize,
+    max_file_size_threshold: i64,
 }
 
 impl SnowflakeApi {
+    /// Create a new `SnowflakeApi` object with an existing connection and session.
+    pub fn new(connection: Arc<Connection>, session: Session, account_identifier: String) -> Self {
+        Self {
+            connection,
+            session,
+            account_identifier,
+            max_parallel_uploads: 4,
+            max_file_size_threshold: 64_000_000,
+        }
+    }
     /// Initialize object with password auth. Authentication happens on the first request.
     pub fn with_password_auth(
         account_identifier: &str,
@@ -221,11 +230,11 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(Self {
-            connection: Arc::clone(&connection),
+        Ok(Self::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
     }
 
     /// Initialize object with private certificate auth. Authentication happens on the first request.
@@ -252,11 +261,21 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(Self {
-            connection: Arc::clone(&connection),
+        Ok(Self::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
+    }
+
+    /// Set the maximum number of parallel uploads for PUT requests. The default is 4.
+    pub fn set_max_parallel_uploads(&mut self, max_parallel_uploads: usize) {
+        self.max_parallel_uploads = max_parallel_uploads;
+    }
+
+    /// Set the maximum file size threshold parallel PUT requests. The default is 64MB.
+    pub fn set_file_size_threshold(&mut self, max_file_size_threshold: i64) {
+        self.max_file_size_threshold = max_file_size_threshold;
     }
 
     /// Closes the current session, this is necessary to clean up temporary objects (tables, functions, etc)
@@ -321,10 +340,6 @@ impl SnowflakeApi {
         info: AwsPutGetStageInfo,
     ) -> Result<(), SnowflakeApiError> {
         // These constants are based on the snowflake website
-        // https://docs.snowflake.com/en/sql-reference/sql/put
-        const MAX_PARALLEL: usize = 4;
-        const MAX_THRESHOLD: i64 = 64_000_000;
-
         let (bucket_name, bucket_path) = info
             .location
             .split_once('/')
@@ -340,9 +355,15 @@ impl SnowflakeApi {
 
         let s3_arc = Arc::new(s3);
 
-        let files = get_files(src_locations, MAX_THRESHOLD);
+        let files = get_files(src_locations, self.max_file_size_threshold);
         let bucket_path = bucket_path.to_string();
-        upload_files_parallel(files.small_files, &bucket_path, &s3_arc, MAX_PARALLEL).await?;
+        upload_files_parallel(
+            files.small_files,
+            &bucket_path,
+            &s3_arc,
+            self.max_parallel_uploads,
+        )
+        .await?;
         upload_files_sequential(files.large_files, &bucket_path, &s3_arc).await?;
         Ok(())
     }
