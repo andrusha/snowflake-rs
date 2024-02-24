@@ -13,6 +13,7 @@ clippy::future_not_send, // This one seems like something we should eventually f
 clippy::missing_panics_doc
 )]
 
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -36,7 +37,9 @@ use session::{AuthError, Session};
 
 use crate::connection::QueryType;
 use crate::requests::ExecRequest;
-use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
+use crate::responses::{
+    AwsPutGetStageInfo, ExecResponseRowType, PutGetExecResponse, PutGetStageInfo, SnowflakeType,
+};
 
 pub mod connection;
 mod requests;
@@ -88,12 +91,49 @@ pub enum SnowflakeApiError {
     UnexpectedResponse,
 }
 
+/// Even if Arrow is specified as a return type non-select queries
+/// will return Json array of arrays: `[[42, "answer"], [43, "non-answer"]]`.
+pub struct JsonResult {
+    // todo: can it _only_ be a json array of arrays or something else too?
+    pub value: serde_json::Value,
+    /// Field ordering matches the array ordering
+    pub schema: Vec<FieldSchema>,
+}
+
+impl Display for JsonResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+/// Based on the [`ExecResponseRowType`]
+pub struct FieldSchema {
+    pub name: String,
+    // todo: is it a good idea to expose internal response struct to the user?
+    pub type_: SnowflakeType,
+    pub scale: Option<i64>,
+    pub precision: Option<i64>,
+    pub nullable: bool,
+}
+
+impl From<ExecResponseRowType> for FieldSchema {
+    fn from(value: ExecResponseRowType) -> Self {
+        FieldSchema {
+            name: value.name,
+            type_: value.type_,
+            scale: value.scale,
+            precision: value.precision,
+            nullable: value.nullable,
+        }
+    }
+}
+
 /// Container for query result.
 /// Arrow is returned by-default for all SELECT statements,
 /// unless there is session configuration issue or it's a different statement type.
 pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
-    Json(serde_json::Value),
+    Json(JsonResult),
     Empty,
 }
 
@@ -105,7 +145,7 @@ pub enum RawQueryResult {
     Bytes(Vec<Bytes>),
     /// Json payload is deserialized,
     /// as it's already a part of REST response
-    Json(serde_json::Value),
+    Json(JsonResult),
     Empty,
 }
 
@@ -417,12 +457,15 @@ impl SnowflakeApi {
         if resp.data.returned == 0 {
             log::debug!("Got response with 0 rows");
             Ok(RawQueryResult::Empty)
-        } else if let Some(json) = resp.data.rowset {
+        } else if let Some(value) = resp.data.rowset {
             log::debug!("Got JSON response");
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
             // information being passed through that fields.
-            Ok(RawQueryResult::Json(json))
+            Ok(RawQueryResult::Json(JsonResult {
+                value,
+                schema: resp.data.rowtype.into_iter().map(Into::into).collect(),
+            }))
         } else if let Some(base64) = resp.data.rowset_base64 {
             // fixme: is it possible to give streaming interface?
             let mut chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
