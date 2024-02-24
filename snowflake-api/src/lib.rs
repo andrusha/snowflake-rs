@@ -2,25 +2,26 @@
     issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
     test(no_crate_inject)
 )]
-#![doc = include_str ! ("../README.md")]
+#![doc = include_str!("../README.md")]
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(
-    clippy::must_use_candidate,
-    clippy::missing_errors_doc,
-    clippy::module_name_repetitions,
-    clippy::struct_field_names,
-    clippy::future_not_send, // This one seems like something we should eventually fix
-    clippy::missing_panics_doc
+clippy::must_use_candidate,
+clippy::missing_errors_doc,
+clippy::module_name_repetitions,
+clippy::struct_field_names,
+clippy::future_not_send, // This one seems like something we should eventually fix
+clippy::missing_panics_doc
 )]
 
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::datatypes::ToByteSlice;
+use arrow::error::ArrowError;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use base64::Engine;
+use bytes::{Buf, Bytes};
 use futures::future::try_join_all;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
@@ -94,6 +95,44 @@ pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
     Json(serde_json::Value),
     Empty,
+}
+
+/// Raw query result
+/// Can be transformed into [`QueryResult`]
+pub enum RawQueryResult {
+    /// Arrow IPC chunks
+    /// see: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
+    Bytes(Vec<Bytes>),
+    /// Json payload is deserialized,
+    /// as it's already a part of REST response
+    Json(serde_json::Value),
+    Empty,
+}
+
+impl RawQueryResult {
+    pub fn deserialize_arrow(self) -> Result<QueryResult, ArrowError> {
+        match self {
+            RawQueryResult::Bytes(bytes) => {
+                Self::flat_bytes_to_batches(bytes).map(QueryResult::Arrow)
+            }
+            RawQueryResult::Json(j) => Ok(QueryResult::Json(j)),
+            RawQueryResult::Empty => Ok(QueryResult::Empty),
+        }
+    }
+
+    fn flat_bytes_to_batches(bytes: Vec<Bytes>) -> Result<Vec<RecordBatch>, ArrowError> {
+        let mut res = vec![];
+        for b in bytes {
+            let mut batches = Self::bytes_to_batches(b)?;
+            res.append(&mut batches);
+        }
+        Ok(res)
+    }
+
+    fn bytes_to_batches(bytes: Bytes) -> Result<Vec<RecordBatch>, ArrowError> {
+        let record_batches = StreamReader::try_new_unbuffered(bytes.reader(), None)?;
+        record_batches.into_iter().collect()
+    }
 }
 
 pub struct AuthArgs {
@@ -255,15 +294,24 @@ impl SnowflakeApi {
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
     pub async fn exec(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+        let raw = self.exec_raw(sql).await?;
+        let res = raw.deserialize_arrow()?;
+        Ok(res)
+    }
+
+    /// Executes a single query against API.
+    /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
+    /// Returns raw bytes in the Arrow response
+    pub async fn exec_raw(&self, sql: &str) -> Result<RawQueryResult, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
         // put commands go through a different flow and result is side-effect
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
 
-            self.exec_put(sql).await.map(|()| QueryResult::Empty)
+            self.exec_put(sql).await.map(|()| RawQueryResult::Empty)
         } else {
-            self.exec_arrow(sql).await
+            self.exec_arrow_raw(sql).await
         }
     }
 
@@ -348,7 +396,7 @@ impl SnowflakeApi {
             .await
     }
 
-    async fn exec_arrow(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    async fn exec_arrow_raw(&self, sql: &str) -> Result<RawQueryResult, SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
@@ -356,51 +404,42 @@ impl SnowflakeApi {
 
         let resp = match resp {
             // processable response
-            ExecResponse::Query(qr) => qr,
-            ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::Error(e) => {
-                return Err(SnowflakeApiError::ApiError(
-                    e.data.error_code,
-                    e.message.unwrap_or_default(),
-                ))
-            }
-        };
+            ExecResponse::Query(qr) => Ok(qr),
+            ExecResponse::PutGet(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
+                e.data.error_code,
+                e.message.unwrap_or_default(),
+            )),
+        }?;
 
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
         if resp.data.returned == 0 {
             log::debug!("Got response with 0 rows");
-            Ok(QueryResult::Empty)
+            Ok(RawQueryResult::Empty)
         } else if let Some(json) = resp.data.rowset {
             log::debug!("Got JSON response");
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
             // information being passed through that fields.
-            Ok(QueryResult::Json(json))
+            Ok(RawQueryResult::Json(json))
         } else if let Some(base64) = resp.data.rowset_base64 {
-            // fixme: loads everything into memory
-            let mut res = vec![];
-            if !base64.is_empty() {
-                log::debug!("Got base64 encoded response");
-                let bytes = base64::engine::general_purpose::STANDARD.decode(base64)?;
-                let fr = StreamReader::try_new_unbuffered(bytes.to_byte_slice(), None)?;
-                for batch in fr {
-                    res.push(batch?);
-                }
-            }
-            let chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
+            // fixme: is it possible to give streaming interface?
+            let mut chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
                 self.connection
                     .get_chunk(&chunk.url, &resp.data.chunk_headers)
             }))
             .await?;
-            for bytes in chunks {
-                let fr = StreamReader::try_new_unbuffered(&*bytes, None)?;
-                for batch in fr {
-                    res.push(batch?);
-                }
+
+            // fixme: should base64 chunk go first?
+            // fixme: if response is chunked is it both base64 + chunks or just chunks?
+            if !base64.is_empty() {
+                log::debug!("Got base64 encoded response");
+                let bytes = Bytes::from(base64::engine::general_purpose::STANDARD.decode(base64)?);
+                chunks.push(bytes);
             }
 
-            Ok(QueryResult::Arrow(res))
+            Ok(RawQueryResult::Bytes(chunks))
         } else {
             Err(SnowflakeApiError::BrokenResponse)
         }
