@@ -8,7 +8,7 @@ use serde::Deserialize;
 pub enum ExecResponse {
     Query(QueryExecResponse),
     PutGet(PutGetExecResponse),
-    Error(ErrorResponse),
+    Error(ExecErrorResponse),
 }
 
 // todo: add close session response, which should be just empty?
@@ -20,7 +20,7 @@ pub enum AuthResponse {
     Auth(AuthenticatorResponse),
     Renew(RenewSessionResponse),
     Close(CloseSessionResponse),
-    Error(ErrorResponse),
+    Error(AuthErrorResponse),
 }
 
 #[derive(Deserialize, Debug)]
@@ -34,7 +34,8 @@ pub struct BaseRestResponse<D> {
 
 pub type PutGetExecResponse = BaseRestResponse<PutGetResponseData>;
 pub type QueryExecResponse = BaseRestResponse<QueryExecResponseData>;
-pub type ErrorResponse = BaseRestResponse<ErrorResponseData>;
+pub type ExecErrorResponse = BaseRestResponse<ExecErrorResponseData>;
+pub type AuthErrorResponse = BaseRestResponse<AuthErrorResponseData>;
 pub type AuthenticatorResponse = BaseRestResponse<AuthenticatorResponseData>;
 pub type LoginResponse = BaseRestResponse<LoginResponseData>;
 pub type RenewSessionResponse = BaseRestResponse<RenewSessionResponseData>;
@@ -43,7 +44,7 @@ pub type CloseSessionResponse = BaseRestResponse<Option<()>>;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ErrorResponseData {
+pub struct ExecErrorResponseData {
     pub age: i64,
     pub error_code: String,
     pub internal_error: bool,
@@ -55,6 +56,12 @@ pub struct ErrorResponseData {
     // fixme: only valid for exec query response error? present in any exec query response?
     pub query_id: String,
     pub sql_state: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthErrorResponseData {
+    pub authn_method: String,
 }
 
 #[derive(Deserialize, Debug)]
