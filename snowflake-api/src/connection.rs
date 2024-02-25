@@ -3,10 +3,10 @@ use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use url::Url;
-use uuid::Uuid;
+
+use crate::middleware::UuidMiddleware;
 
 #[derive(Error, Debug)]
 pub enum ConnectionError {
@@ -110,6 +110,7 @@ impl Connection {
         let client = client.build()?;
 
         Ok(reqwest_middleware::ClientBuilder::new(client)
+            .with(UuidMiddleware)
             .with(RetryTransientMiddleware::new_with_policy(retry_policy)))
     }
 
@@ -126,22 +127,7 @@ impl Connection {
     ) -> Result<R, ConnectionError> {
         let context = query_type.query_context();
 
-        let request_id = Uuid::new_v4();
-        let request_guid = Uuid::new_v4();
-        let client_start_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .to_string();
-        // fixme: update uuid's on the retry
-        let request_id = request_id.to_string();
-        let request_guid = request_guid.to_string();
-
-        let mut get_params = vec![
-            ("clientStartTime", client_start_time.as_str()),
-            ("requestId", request_id.as_str()),
-            ("request_guid", request_guid.as_str()),
-        ];
+        let mut get_params = vec![];
         get_params.extend_from_slice(extra_get_params);
 
         let url = format!(

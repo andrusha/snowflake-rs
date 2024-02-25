@@ -165,9 +165,9 @@ pub struct ExecResponseRowType {
     pub nullable: bool,
 }
 
-// fixme: is it good idea to keep this as an enum if more types could be added in future?
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SnowflakeType {
     Fixed,
     Real,

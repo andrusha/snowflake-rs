@@ -39,6 +39,7 @@ use crate::requests::ExecRequest;
 use crate::responses::{AwsPutGetStageInfo, PutGetExecResponse, PutGetStageInfo};
 
 pub mod connection;
+mod middleware;
 mod requests;
 mod responses;
 mod session;
