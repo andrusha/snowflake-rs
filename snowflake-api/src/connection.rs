@@ -106,8 +106,8 @@ impl Connection {
     ) -> Self {
         Self {
             client,
-            base_url: base_url.unwrap_or_else(|| ".snowflakecomputing.com".to_string()),
-            scheme: scheme.unwrap_or_else(|| Scheme::HTTPS),
+            base_url: base_url.unwrap_or(".snowflakecomputing.com".to_string()),
+            scheme: scheme.unwrap_or(Scheme::HTTPS),
         }
     }
 
@@ -215,7 +215,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut client = Connection::default_client_builder();
+        let client = Connection::default_client_builder();
         let conn = Connection::new_with_middware(
             client.unwrap().build(),
             Some("0.0.0.0:1234".to_string()),
@@ -226,7 +226,7 @@ mod tests {
 
         let ctx = QueryType::LoginRequest.query_context();
 
-        let m1 = server
+        let _m1 = server
             .mock("POST", ctx.path)
             // with this set, mockito doens't match the path, but it's not a problem for this test
             // as it allows us to test the retry logic
