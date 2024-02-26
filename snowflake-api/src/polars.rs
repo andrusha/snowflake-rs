@@ -75,5 +75,6 @@ fn dataframe_from_bytes(bytes: Vec<Bytes>) -> Result<DataFrame, PolarsCastError>
         let df_chunk = IpcStreamReader::new(b.reader()).finish()?;
         df.vstack_mut(&df_chunk)?;
     }
+    df.align_chunks();
     Ok(df)
 }
