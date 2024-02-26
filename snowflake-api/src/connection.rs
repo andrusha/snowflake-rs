@@ -202,11 +202,11 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dashmap::DashMap;
     use http::uri::Scheme;
     use serde_json::json;
-    use uuid::Uuid;
-    use dashmap::DashMap;
     use std::sync::Arc;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_request() {
@@ -242,7 +242,6 @@ mod tests {
             .with_header("content-type", ctx.accept_mime)
             // mechanism to validate the request body (feed it back to the client)
             .with_body_from_request(move |request| {
-
                 let path_and_query = request.path_and_query();
                 let binding = String::new();
                 let query = path_and_query.split('?').nth(1).unwrap_or(&binding);
@@ -277,13 +276,11 @@ mod tests {
                 // assert that the requestId is present and is a valid UUID
                 let request_id = res["requestId"].as_str().unwrap();
                 assert_eq!(Uuid::parse_str(request_id).is_ok(), true);
-
             }
             Err(e) => {
                 log::error!("Error: {}", e);
             }
         };
-
 
         // assert that all requests were made with different requestIds
         assert_eq!(request_ids.len(), 4);
