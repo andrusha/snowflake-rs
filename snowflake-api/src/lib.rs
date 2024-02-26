@@ -23,6 +23,7 @@ use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use bytes::{Buf, Bytes};
 use futures::future::try_join_all;
+use http::uri::Scheme;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
@@ -177,7 +178,11 @@ impl SnowflakeApiBuilder {
 
     pub fn build(self) -> Result<SnowflakeApi, SnowflakeApiError> {
         let connection = match self.client {
-            Some(client) => Arc::new(Connection::new_with_middware(client)),
+            Some(client) => Arc::new(Connection::new_with_middware(
+                client,
+                None,
+                Some(Scheme::HTTPS),
+            )),
             None => Arc::new(Connection::new()?),
         };
 
