@@ -205,6 +205,8 @@ mod tests {
     use http::uri::Scheme;
     use serde_json::json;
     use uuid::Uuid;
+    use dashmap::DashMap;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_request() {
@@ -227,6 +229,11 @@ mod tests {
 
         let ctx = QueryType::LoginRequest.query_context();
 
+        // using a dashmap to capture the requestIds across
+        //all requests to our mock server
+        let mut request_ids = Arc::new(DashMap::new());
+        let request_ids_clone = Arc::clone(&request_ids);
+
         let _m1 = server
             .mock("POST", "/session/v1/login-request")
             .match_query(mockito::Matcher::Any)
@@ -234,7 +241,8 @@ mod tests {
             .with_status(500)
             .with_header("content-type", ctx.accept_mime)
             // mechanism to validate the request body (feed it back to the client)
-            .with_body_from_request(|request| {
+            .with_body_from_request(move |request| {
+
                 let path_and_query = request.path_and_query();
                 let binding = String::new();
                 let query = path_and_query.split('?').nth(1).unwrap_or(&binding);
@@ -243,6 +251,9 @@ mod tests {
 
                 let another_binding = String::new();
                 let request_id = params.get("requestId").unwrap_or(&another_binding);
+
+                request_ids_clone.insert(request_id.clone(), true);
+
                 let body = json!({"error": "an error happened", "requestId": request_id});
                 body.to_string().as_bytes().to_vec()
             })
@@ -272,6 +283,16 @@ mod tests {
                 log::error!("Error: {}", e);
             }
         };
+
+
+        // assert that all requests were made with different requestIds
+        assert_eq!(request_ids.len(), 4);
+
+        request_ids.iter().for_each(|entry| {
+            let request_id = entry.key();
+            log::info!("Captured Request ID: {}", request_id);
+            assert_eq!(Uuid::parse_str(request_id).is_ok(), true);
+        });
 
         _m1.assert_async().await;
     }
