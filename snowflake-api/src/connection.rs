@@ -204,6 +204,7 @@ mod tests {
     use super::*;
     use http::uri::Scheme;
     use serde_json::json;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_request() {
@@ -227,13 +228,25 @@ mod tests {
         let ctx = QueryType::LoginRequest.query_context();
 
         let _m1 = server
-            .mock("POST", ctx.path)
-            // with this set, mockito doens't match the path, but it's not a problem for this test
-            // as it allows us to test the retry logic
+            .mock("POST", "/session/v1/login-request")
             .match_query(mockito::Matcher::Any)
-            .with_status(200)
+            // force an error to validate retries
+            .with_status(500)
             .with_header("content-type", ctx.accept_mime)
-            .with_body(json!({"message": "Success"}).to_string())
+            // mechanism to validate the request body (feed it back to the client)
+            .with_body_from_request(|request| {
+                let path_and_query = request.path_and_query();
+                let binding = String::new();
+                let query = path_and_query.split('?').nth(1).unwrap_or(&binding);
+                let params: HashMap<String, String> =
+                    serde_urlencoded::from_str(query).unwrap_or_else(|_| HashMap::new());
+
+                let another_binding = String::new();
+                let request_id = params.get("requestId").unwrap_or(&another_binding);
+                let body = json!({"error": "an error happened", "requestId": request_id});
+                body.to_string().as_bytes().to_vec()
+            })
+            .expect(4)
             .create_async()
             .await;
 
@@ -248,11 +261,18 @@ mod tests {
             .await
         {
             Ok(res) => {
-                assert_eq!(res, json!({"message": "Success"}));
+                assert_eq!(res["error"], "an error happened");
+
+                // assert that the requestId is present and is a valid UUID
+                let request_id = res["requestId"].as_str().unwrap();
+                assert_eq!(Uuid::parse_str(request_id).is_ok(), true);
+
             }
             Err(e) => {
                 log::error!("Error: {}", e);
             }
         };
+
+        _m1.assert_async().await;
     }
 }
