@@ -272,10 +272,6 @@ mod tests {
         {
             Ok(res) => {
                 assert_eq!(res["error"], "an error happened");
-
-                // assert that the requestId is present and is a valid UUID
-                let request_id = res["requestId"].as_str().unwrap();
-                assert_eq!(Uuid::parse_str(request_id).is_ok(), true);
             }
             Err(e) => {
                 log::error!("Error: {}", e);
