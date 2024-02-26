@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::{JsonResult, RawQueryResult};
 use bytes::{Buf, Bytes};
 use polars_core::frame::DataFrame;
@@ -77,4 +79,12 @@ fn dataframe_from_bytes(bytes: Vec<Bytes>) -> Result<DataFrame, PolarsCastError>
     }
     df.align_chunks();
     Ok(df)
+}
+
+impl TryFrom<RawQueryResult> for DataFrame {
+    type Error = PolarsCastError;
+
+    fn try_from(value: RawQueryResult) -> Result<Self, Self::Error> {
+        value.to_polars()
+    }
 }
