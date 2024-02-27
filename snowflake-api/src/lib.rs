@@ -44,12 +44,12 @@ use crate::responses::{
 
 pub mod connection;
 
+mod middleware;
 #[cfg(feature = "polars")]
 mod polars;
 mod requests;
 mod responses;
 mod session;
-mod middleware;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
