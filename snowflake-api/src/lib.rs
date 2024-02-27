@@ -42,6 +42,8 @@ use crate::responses::{
 };
 
 pub mod connection;
+#[cfg(feature = "polars")]
+mod polars;
 mod requests;
 mod responses;
 mod session;
