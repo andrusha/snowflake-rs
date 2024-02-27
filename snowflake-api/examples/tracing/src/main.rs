@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
 
 #[tracing::instrument(name = "snowflake_api", skip(api))]
 async fn run_in_span(api: &snowflake_api::SnowflakeApi) -> anyhow::Result<()> {
-    let res = api.exec("select 'hello from snowflake' as col1;").await?;
+    let res = api.exec("select 1;").await?;
 
     match res {
         QueryResult::Arrow(a) => {
