@@ -213,7 +213,7 @@ mod tests {
         tracing_subscriber::fmt::init();
 
         let opts = mockito::ServerOpts {
-            host: "0.0.0.0",
+            host: "127.0.0.1",
             port: 1234,
             ..Default::default()
         };
@@ -221,7 +221,7 @@ mod tests {
         let client = Connection::default_client_builder();
         let conn = Connection::new_with_middware(
             client.unwrap().build(),
-            Some("0.0.0.0:1234".to_string()),
+            Some("127.0.0.1:1234".to_string()),
             Some(Scheme::HTTP),
         );
 
@@ -230,8 +230,8 @@ mod tests {
         let ctx = QueryType::LoginRequest.query_context();
 
         // using a dashmap to capture the requestIds across
-        //all requests to our mock server
-        let mut request_ids = Arc::new(DashMap::new());
+        // all requests to our mock server
+        let request_ids = Arc::new(DashMap::new());
         let request_ids_clone = Arc::clone(&request_ids);
 
         let _m1 = server
