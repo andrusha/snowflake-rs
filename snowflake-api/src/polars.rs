@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 
-use crate::{JsonResult, RawQueryResult};
 use bytes::{Buf, Bytes};
 use polars_core::frame::DataFrame;
 use polars_io::ipc::IpcStreamReader;
@@ -9,6 +8,8 @@ use polars_io::SerReader;
 use serde::de::Error;
 use serde_json::{Map, Value};
 use thiserror::Error;
+
+use crate::{JsonResult, RawQueryResult};
 
 #[derive(Error, Debug)]
 pub enum PolarsCastError {
