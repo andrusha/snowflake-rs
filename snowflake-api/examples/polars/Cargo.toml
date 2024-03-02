@@ -13,4 +13,4 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3"
 
 snowflake-api = { path = "../../../snowflake-api", features = ["polars"]}
-polars = { version = "0.37", features = ["fmt"] }
+polars = { version = ">=0.37", features = ["fmt"] }
