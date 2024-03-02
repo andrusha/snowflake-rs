@@ -7,16 +7,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
-arrow = { version = "50.0.0", features = ["prettyprint"] }
 dotenv = "0.15.0"
-snowflake-api = { path = "../../../snowflake-api", features = ["polars"]}
-
 tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3"
 
-bytes = "1"
-
+snowflake-api = { path = "../../../snowflake-api", features = ["polars"]}
 polars = { version = "0.37", features = ["fmt"] }
-serde_json = { version = "*" }
-serde = { version = "1.0", features = ["derive"] }
