@@ -7,21 +7,27 @@ use snowflake_api::connection::Connection;
 use snowflake_api::{AuthArgs, AuthType, PasswordArgs, QueryResult, SnowflakeApiBuilder};
 use tracing_subscriber::layer::SubscriberExt;
 
+use opentelemetry::KeyValue;
+use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 use reqwest_middleware::Extension;
 use reqwest_tracing::{OtelName, SpanBackendWithUrl};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    std::env::set_var("OTEL_SERVICE_NAME", "snowflake-rust-client-demo");
-
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint("http://localhost:4319");
-
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(exporter)
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint("http://localhost:4317"),
+        )
+        .with_trace_config(
+            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                "snowflake-rust-client-demo",
+            )])),
+        )
+        .install_batch(runtime::Tokio)?;
 
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer.clone());
     let subscriber = tracing_subscriber::Registry::default().with(telemetry);
