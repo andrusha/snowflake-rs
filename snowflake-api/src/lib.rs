@@ -42,7 +42,7 @@ use crate::responses::{
 };
 
 pub mod connection;
-
+#[cfg(feature = "refinery")]
 mod migration;
 #[cfg(feature = "polars")]
 mod polars;

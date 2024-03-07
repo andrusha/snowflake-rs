@@ -13,10 +13,11 @@ version = "0.7.0"
 
 [features]
 default = ["cert-auth"]
-all = ["cert-auth", "polars"]
+all = ["cert-auth", "polars", "refinery"]
 cert-auth = ["dep:snowflake-jwt"]
 # support for conversion of arrow and json payloads to dataframes
 polars = ["dep:polars-core", "dep:polars-io"]
+refinery = ["dep:refinery-core", "dep:time", "dep:sqlparser"]
 
 
 [dependencies]
@@ -46,12 +47,15 @@ polars-io = { version = ">=0.32", features = [
     "ipc_streaming",
 ], optional = true }
 polars-core = { version = ">=0.32", optional = true }
-
-
-refinery-core = { version = "=0.8.12" }
-time = { version = "0.3.5", features = ["parsing", "formatting"] }
-sqlparser = "0.44"
 tap = "1"
+
+
+refinery-core = { version = "=0.8.12", optional = true }
+time = { version = "0.3.5", features = [
+    "parsing",
+    "formatting",
+], optional = true }
+sqlparser = { version = "0.44", optional = true }
 
 [dev-dependencies]
 anyhow = "1"
