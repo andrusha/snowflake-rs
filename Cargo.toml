@@ -5,4 +5,5 @@ members = [
     "snowflake-api",
     "snowflake-api/examples/tracing",
     "snowflake-api/examples/polars",
+    "snowflake-api/examples/migrate",
 ]

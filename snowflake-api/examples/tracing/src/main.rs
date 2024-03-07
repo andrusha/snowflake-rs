@@ -4,7 +4,7 @@ use opentelemetry::global;
 use opentelemetry_otlp::WithExportConfig;
 
 use snowflake_api::connection::Connection;
-use snowflake_api::{AuthArgs, AuthType, PasswordArgs, QueryResult, SnowflakeApiBuilder};
+use snowflake_api::{AuthArgs, QueryResult, SnowflakeApiBuilder};
 use tracing_subscriber::layer::SubscriberExt;
 
 use opentelemetry::KeyValue;
@@ -35,18 +35,7 @@ async fn main() -> Result<()> {
 
     dotenv::dotenv().ok();
 
-    let auth_args = AuthArgs {
-        account_identifier: std::env::var("SNOWFLAKE_ACCOUNT").expect("SNOWFLAKE_ACCOUNT not set"),
-        warehouse: std::env::var("SNOWLFLAKE_WAREHOUSE").ok(),
-        database: std::env::var("SNOWFLAKE_DATABASE").ok(),
-        schema: std::env::var("SNOWFLAKE_SCHEMA").ok(),
-        username: std::env::var("SNOWFLAKE_USER").expect("SNOWFLAKE_USER not set"),
-        role: std::env::var("SNOWFLAKE_ROLE").ok(),
-        auth_type: AuthType::Password(PasswordArgs {
-            password: std::env::var("SNOWFLAKE_PASSWORD").expect("SNOWFLAKE_PASSWORD not set"),
-        }),
-    };
-
+    let auth_args = AuthArgs::from_env()?;
     let mut client = Connection::default_client_builder()?;
     client = client
         .with_init(Extension(OtelName(std::borrow::Cow::Borrowed(
