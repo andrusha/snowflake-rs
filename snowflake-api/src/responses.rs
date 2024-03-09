@@ -201,9 +201,8 @@ pub struct PutGetResponseData {
     // inconsistent case naming
     #[serde(rename = "src_locations", default)]
     pub src_locations: Vec<String>,
-    // todo: support upload parallelism
     // file upload parallelism
-    pub parallel: i32,
+    pub parallel: usize, // fixme: originally i32, handle this in parsing somehow?
     // file size threshold, small ones are should be uploaded with given parallelism
     pub threshold: i64,
     // doesn't need compression if source is already compressed

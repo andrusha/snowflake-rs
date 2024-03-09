@@ -23,7 +23,6 @@ use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use bytes::{Buf, Bytes};
 use futures::future::try_join_all;
-use object_store::aws::AmazonS3Builder;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
@@ -34,18 +33,15 @@ use session::{AuthError, Session};
 use crate::connection::QueryType;
 use crate::connection::{Connection, ConnectionError};
 use crate::requests::ExecRequest;
-use crate::responses::{
-    AwsPutGetStageInfo, ExecResponseRowType, PutGetExecResponse, PutGetStageInfo, SnowflakeType,
-};
-use crate::upload_files::{get_files, upload_files_parallel, upload_files_sequential};
+use crate::responses::{ExecResponseRowType, SnowflakeType};
 
 pub mod connection;
 #[cfg(feature = "polars")]
 mod polars;
+mod put;
 mod requests;
 mod responses;
 mod session;
-mod upload_files;
 
 #[derive(Error, Debug)]
 pub enum SnowflakeApiError {
@@ -94,8 +90,11 @@ pub enum SnowflakeApiError {
     #[error("Unexpected API response")]
     UnexpectedResponse,
 
-    #[error("Missing feature: {0}")]
-    MissingFeature(String),
+    #[error(transparent)]
+    GlobPatternError(#[from] glob::PatternError),
+
+    #[error(transparent)]
+    GlobError(#[from] glob::GlobError),
 }
 
 /// Even if Arrow is specified as a return type non-select queries
@@ -265,11 +264,6 @@ pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
     account_identifier: String,
-    // These two fields are used for PUT requests
-    // The defaults used can be found here:
-    // https://docs.snowflake.com/en/sql-reference/sql/put
-    max_parallel_uploads: usize,
-    max_file_size_threshold: i64,
 }
 
 impl SnowflakeApi {
@@ -279,8 +273,6 @@ impl SnowflakeApi {
             connection,
             session,
             account_identifier,
-            max_parallel_uploads: 4,
-            max_file_size_threshold: 64_000_000,
         }
     }
     /// Initialize object with password auth. Authentication happens on the first request.
@@ -345,16 +337,6 @@ impl SnowflakeApi {
         ))
     }
 
-    /// Set the maximum number of parallel uploads for PUT requests. The default is 4.
-    pub fn set_max_parallel_uploads(&mut self, max_parallel_uploads: usize) {
-        self.max_parallel_uploads = max_parallel_uploads;
-    }
-
-    /// Set the maximum file size threshold parallel PUT requests. The default is 64MB.
-    pub fn set_file_size_threshold(&mut self, max_file_size_threshold: i64) {
-        self.max_file_size_threshold = max_file_size_threshold;
-    }
-
     /// Closes the current session, this is necessary to clean up temporary objects (tables, functions, etc)
     /// which are Snowflake session dependent.
     /// If another request is made the new session will be initiated.
@@ -394,58 +376,12 @@ impl SnowflakeApi {
 
         match resp {
             ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::PutGet(pg) => self.put(pg).await,
+            ExecResponse::PutGet(pg) => put::put(pg).await,
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
             )),
         }
-    }
-
-    async fn put(&self, resp: PutGetExecResponse) -> Result<(), SnowflakeApiError> {
-        match resp.data.stage_info {
-            PutGetStageInfo::Aws(info) => self.put_to_s3(&resp.data.src_locations, info).await,
-            PutGetStageInfo::Azure(_) => Err(SnowflakeApiError::Unimplemented(
-                "PUT local file requests for Azure".to_string(),
-            )),
-            PutGetStageInfo::Gcs(_) => Err(SnowflakeApiError::Unimplemented(
-                "PUT local file requests for GCS".to_string(),
-            )),
-        }
-    }
-
-    async fn put_to_s3(
-        &self,
-        src_locations: &[String],
-        info: AwsPutGetStageInfo,
-    ) -> Result<(), SnowflakeApiError> {
-        // These constants are based on the snowflake website
-        let (bucket_name, bucket_path) = info
-            .location
-            .split_once('/')
-            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
-
-        let s3 = AmazonS3Builder::new()
-            .with_region(info.region)
-            .with_bucket_name(bucket_name)
-            .with_access_key_id(info.creds.aws_key_id)
-            .with_secret_access_key(info.creds.aws_secret_key)
-            .with_token(info.creds.aws_token)
-            .build()?;
-
-        let s3_arc = Arc::new(s3);
-
-        let files = get_files(src_locations, self.max_file_size_threshold);
-        let bucket_path = bucket_path.to_string();
-        upload_files_parallel(
-            files.small_files,
-            &bucket_path,
-            &s3_arc,
-            self.max_parallel_uploads,
-        )
-        .await?;
-        upload_files_sequential(files.large_files, &bucket_path, &s3_arc).await?;
-        Ok(())
     }
 
     /// Useful for debugging to get the straight query response
