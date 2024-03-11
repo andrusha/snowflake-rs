@@ -3,7 +3,6 @@ use arrow::array::{
     Int32Array, Int64Array, Int8Array, PrimitiveArray, RecordBatch, StringArray, StructArray,
 };
 use arrow::datatypes::ArrowPrimitiveType;
-use arrow::util::pretty::pretty_format_batches;
 use async_trait::async_trait;
 use refinery_core::traits::r#async::{AsyncMigrate, AsyncQuery, AsyncTransaction};
 use refinery_core::Migration;
@@ -100,7 +99,7 @@ impl AsyncTransaction for SnowflakeApi {
 
     async fn execute(&mut self, queries: &[&str]) -> Result<usize, Self::Error> {
         let previous_database = self.exec("SELECT CURRENT_DATABASE();").await?;
-
+        // TODO: simplify this section for grabbing a single value, the arrow code is verbose.
         let previous_role = match self.exec("SELECT CURRENT_ROLE();").await? {
             QueryResult::Arrow(arrow) => {
                 let batch = arrow.first().expect("No batches returned");
@@ -134,26 +133,22 @@ impl AsyncTransaction for SnowflakeApi {
         self.exec("BEGIN TRANSACTION;").await?;
 
         let mut modified_queries = Vec::with_capacity(queries.len() + 1);
-
-        // Copy all but the last query
+        // Here we are slotting in the previous database and role
+        // assume queries so that the migration insert is run with the orignal
+        // database and role that the script is executed with, else we run
+        // into issues with the migration table not being found due to permissions
         for &query in &queries[..queries.len() - 1] {
             modified_queries.push(query);
         }
-
         let db_query = format!("USE DATABASE {previous_database};");
         let role_query = format!("USE ROLE {previous_role};");
-
-        // Add the new queries before the last query
         modified_queries.push(&db_query);
         modified_queries.push(&role_query);
-
-        // Add the original last query (which in refinery is the migration table insert)
         modified_queries.push(queries[queries.len() - 1]);
 
-        // Iterate over modified queries
         for query in modified_queries {
             log::debug!("Executing migration query: {:?}", query);
-            let split_queries = split_query(query); // Ensure split_query can handle &String
+            let split_queries = split_query(query);
             log::debug!("Split queries: {:?}", split_queries);
 
             for statement in split_queries {
