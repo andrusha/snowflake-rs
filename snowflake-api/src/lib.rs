@@ -93,9 +93,6 @@ pub enum SnowflakeApiError {
 
     #[error("Unexpected API response")]
     UnexpectedResponse,
-
-    #[error("Error parsing query: {0}")]
-    QueryParserError(sqlparser::parser::ParserError),
 }
 
 /// Even if Arrow is specified as a return type non-select queries

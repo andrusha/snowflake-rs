@@ -3,13 +3,15 @@ use arrow::array::{
     Int32Array, Int64Array, Int8Array, PrimitiveArray, RecordBatch, StringArray, StructArray,
 };
 use arrow::datatypes::ArrowPrimitiveType;
+use arrow::util::pretty::pretty_format_batches;
 use async_trait::async_trait;
 use refinery_core::traits::r#async::{AsyncMigrate, AsyncQuery, AsyncTransaction};
 use refinery_core::Migration;
 
 use serde::{de, Deserialize};
-use sqlparser::dialect::SnowflakeDialect;
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use tap::Tap;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
@@ -17,7 +19,7 @@ use time::OffsetDateTime;
 
 use crate::{QueryResult, SnowflakeApi, SnowflakeApiError};
 
-const DIALECT: SnowflakeDialect = sqlparser::dialect::SnowflakeDialect {};
+static BLOCK_COMMENT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)/\*.*?\*/").unwrap());
 
 /// copied from `refinery_core`
 #[allow(dead_code)]
@@ -97,20 +99,90 @@ impl AsyncTransaction for SnowflakeApi {
     type Error = SnowflakeApiError;
 
     async fn execute(&mut self, queries: &[&str]) -> Result<usize, Self::Error> {
-        self.exec("BEGIN TRANSACTION").await?;
+        let previous_database = self.exec("SELECT CURRENT_DATABASE();").await?;
 
-        for query in queries {
-            let parsed_query = sqlparser::parser::Parser::parse_sql(&DIALECT, query)
-                .map_err(SnowflakeApiError::QueryParserError)?;
-            for statement in parsed_query {
-                self.exec(&statement.to_string()).await?;
+        let previous_role = match self.exec("SELECT CURRENT_ROLE();").await? {
+            QueryResult::Arrow(arrow) => {
+                let batch = arrow.first().expect("No batches returned");
+
+                let column = batch.column(0);
+                let array = column.as_any().downcast_ref::<StringArray>().unwrap();
+                let role = array.value(0);
+                log::debug!("Previous Role: {:?}", role);
+                role.to_owned()
+            }
+            QueryResult::Json(_) | QueryResult::Empty => {
+                return Err(SnowflakeApiError::UnexpectedResponse)
+            }
+        };
+
+        let previous_database = match previous_database {
+            QueryResult::Arrow(arrow) => {
+                let batch = arrow.first().expect("No batches returned");
+
+                let column = batch.column(0);
+                let array = column.as_any().downcast_ref::<StringArray>().unwrap();
+                let db = array.value(0);
+                log::debug!("Previous Database: {:?}", db);
+                db.to_owned()
+            }
+            QueryResult::Json(_) | QueryResult::Empty => {
+                return Err(SnowflakeApiError::UnexpectedResponse)
+            }
+        };
+
+        self.exec("BEGIN TRANSACTION;").await?;
+
+        let mut modified_queries = Vec::with_capacity(queries.len() + 1);
+
+        // Copy all but the last query
+        for &query in &queries[..queries.len() - 1] {
+            modified_queries.push(query);
+        }
+
+        let db_query = format!("USE DATABASE {previous_database};");
+        let role_query = format!("USE ROLE {previous_role};");
+
+        // Add the new queries before the last query
+        modified_queries.push(&db_query);
+        modified_queries.push(&role_query);
+
+        // Add the original last query (which in refinery is the migration table insert)
+        modified_queries.push(queries[queries.len() - 1]);
+
+        // Iterate over modified queries
+        for query in modified_queries {
+            log::debug!("Executing migration query: {:?}", query);
+            let split_queries = split_query(query); // Ensure split_query can handle &String
+            log::debug!("Split queries: {:?}", split_queries);
+
+            for statement in split_queries {
+                self.exec(&statement).await?;
             }
         }
 
-        self.exec("COMMIT").await?;
+        self.exec("COMMIT;").await?;
 
         Ok(queries.len())
     }
+}
+
+fn split_query(query: &str) -> Vec<String> {
+    let query_without_block_comments = BLOCK_COMMENT_RE.replace_all(query, "").to_string();
+
+    let concatenated = query_without_block_comments
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("--"))
+        .collect::<Vec<&str>>()
+        .join(" ");
+
+    concatenated
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 #[async_trait]
@@ -279,4 +351,14 @@ fn result_to_migrations(
         .collect::<Vec<MigrationInner>>();
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod test_migrate {
+    #[test]
+    fn test_split_query() {
+        let input = "-- SET previous_role = CURRENT_ROLE();\n-- SET previous_database = CURRENT_DATABASE();\n\n\nUSE ROLE SYSADMIN;\nCREATE OR REPLACE DATABASE test_db;\n\n-- Assume Snowflake ACCOUNTADMIN role\nUSE ROLE ACCOUNTADMIN;\n\n-- Create a new role 'test_role'\nCREATE OR REPLACE ROLE test_role;\n\n-- Grant some privileges to 'test_role'\nGRANT USAGE ON DATABASE test_db TO ROLE test_role;\nGRANT USAGE ON SCHEMA test_db.public TO ROLE test_role;\n\n\n-- Create a file format for CSV files\nCREATE OR REPLACE FILE FORMAT my_csv_format\n  TYPE = 'CSV'\n  FIELD_DELIMITER = ','\n  SKIP_HEADER = 1;\n\n/*\nUSE ROLE IDENTIFIER($previous_role);\nUSE DATABASE IDENTIFIER($previous_database);\n*/";
+        let expected = vec!["USE ROLE SYSADMIN", "CREATE OR REPLACE DATABASE test_db", "USE ROLE ACCOUNTADMIN", "CREATE OR REPLACE ROLE test_role", "GRANT USAGE ON DATABASE test_db TO ROLE test_role", "GRANT USAGE ON SCHEMA test_db.public TO ROLE test_role", "CREATE OR REPLACE FILE FORMAT my_csv_format TYPE = 'CSV' FIELD_DELIMITER = ',' SKIP_HEADER = 1"];
+        assert_eq!(expected, super::split_query(input));
+    }
 }
