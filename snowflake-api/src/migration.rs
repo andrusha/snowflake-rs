@@ -98,38 +98,9 @@ impl AsyncTransaction for SnowflakeApi {
     type Error = SnowflakeApiError;
 
     async fn execute(&mut self, queries: &[&str]) -> Result<usize, Self::Error> {
-        let previous_database = self.exec("SELECT CURRENT_DATABASE();").await?;
-        // TODO: simplify this section for grabbing a single value, the arrow code is verbose.
-        let previous_role = match self.exec("SELECT CURRENT_ROLE();").await? {
-            QueryResult::Arrow(arrow) => {
-                let batch = arrow.first().expect("No batches returned");
-
-                let column = batch.column(0);
-                let array = column.as_any().downcast_ref::<StringArray>().unwrap();
-                let role = array.value(0);
-                log::debug!("Previous Role: {:?}", role);
-                role.to_owned()
-            }
-            QueryResult::Json(_) | QueryResult::Empty => {
-                return Err(SnowflakeApiError::UnexpectedResponse)
-            }
-        };
-
-        let previous_database = match previous_database {
-            QueryResult::Arrow(arrow) => {
-                let batch = arrow.first().expect("No batches returned");
-
-                let column = batch.column(0);
-                let array = column.as_any().downcast_ref::<StringArray>().unwrap();
-                let db = array.value(0);
-                log::debug!("Previous Database: {:?}", db);
-                db.to_owned()
-            }
-            QueryResult::Json(_) | QueryResult::Empty => {
-                return Err(SnowflakeApiError::UnexpectedResponse)
-            }
-        };
-
+        self.exec("SET previous_role = CURRENT_ROLE();").await?;
+        self.exec("SET previous_database = CURRENT_DATABASE();")
+            .await?;
         self.exec("BEGIN TRANSACTION;").await?;
 
         let mut modified_queries = Vec::with_capacity(queries.len() + 1);
@@ -140,10 +111,8 @@ impl AsyncTransaction for SnowflakeApi {
         for &query in &queries[..queries.len() - 1] {
             modified_queries.push(query);
         }
-        let db_query = format!("USE DATABASE {previous_database};");
-        let role_query = format!("USE ROLE {previous_role};");
-        modified_queries.push(&db_query);
-        modified_queries.push(&role_query);
+        modified_queries.push("USE DATABASE IDENTIFIER($previous_database);");
+        modified_queries.push("USE ROLE IDENTIFIER($previous_role);");
         modified_queries.push(queries[queries.len() - 1]);
 
         for query in modified_queries {
