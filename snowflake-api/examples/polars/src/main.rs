@@ -7,7 +7,6 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-
     let api = SnowflakeApi::from_env()?;
 
     // run a query that returns a tabular arrow response
