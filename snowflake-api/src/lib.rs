@@ -229,34 +229,6 @@ pub struct CertificateArgs {
     pub private_key_pem: String,
 }
 
-impl AuthArgs {
-    /// Construct `AuthArgs` from environment variables
-    pub fn from_env() -> Result<Self, SnowflakeApiError> {
-        let auth_type = match std::env::var("SNOWFLAKE_PASSWORD") {
-            Ok(_) => AuthType::Password(PasswordArgs {
-                password: std::env::var("SNOWFLAKE_PASSWORD")
-                    .map_err(|_| SnowflakeApiError::AuthError(AuthError::MissingPassword))?,
-            }),
-            Err(_) => AuthType::Certificate(CertificateArgs {
-                private_key_pem: std::env::var("SNOWFLAKE_PRIVATE_KEY_PEM")
-                    .map_err(|_| SnowflakeApiError::AuthError(AuthError::MissingPrivateKey))?,
-            }),
-        };
-
-        Ok(Self {
-            account_identifier: std::env::var("SNOWFLAKE_ACCOUNT")
-                .map_err(|_| SnowflakeApiError::AuthError(AuthError::MissingAccount))?,
-            warehouse: std::env::var("SNOWLFLAKE_WAREHOUSE").ok(),
-            database: std::env::var("SNOWFLAKE_DATABASE").ok(),
-            schema: std::env::var("SNOWFLAKE_SCHEMA").ok(),
-            username: std::env::var("SNOWFLAKE_USER")
-                .map_err(|_| SnowflakeApiError::AuthError(AuthError::MissingUsername))?,
-            role: std::env::var("SNOWFLAKE_ROLE").ok(),
-            auth_type,
-        })
-    }
-}
-
 #[must_use]
 pub struct SnowflakeApiBuilder {
     pub auth: AuthArgs,

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use snowflake_api::{AuthArgs, SnowflakeApiBuilder};
+use snowflake_api::SnowflakeApi;
 
 mod embedded {
     use refinery::embed_migrations;
@@ -11,9 +11,7 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    let auth_args = AuthArgs::from_env()?;
-    let mut conn = SnowflakeApiBuilder::new(auth_args).build()?;
-
+    let mut conn = SnowflakeApi::from_env()?;
     embedded::migrations::runner().run_async(&mut conn).await?;
 
     Ok(())
