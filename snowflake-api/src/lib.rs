@@ -40,6 +40,7 @@ use crate::requests::ExecRequest;
 use crate::responses::{
     AwsPutGetStageInfo, ExecResponseRowType, PutGetExecResponse, PutGetStageInfo, SnowflakeType,
 };
+use crate::session::AuthError::MissingEnvArgument;
 
 pub mod connection;
 #[cfg(feature = "refinery")]
@@ -187,6 +188,32 @@ pub struct AuthArgs {
     pub username: String,
     pub role: Option<String>,
     pub auth_type: AuthType,
+}
+
+impl AuthArgs {
+    pub fn from_env() -> Result<AuthArgs, SnowflakeApiError> {
+        let auth_type = if let Ok(password) = std::env::var("SNOWFLAKE_PASSWORD") {
+            Ok(AuthType::Password(PasswordArgs { password }))
+        } else if let Ok(private_key_pem) = std::env::var("SNOWFLAKE_PRIVATE_KEY") {
+            Ok(AuthType::Certificate(CertificateArgs { private_key_pem }))
+        } else {
+            Err(MissingEnvArgument(
+                "SNOWFLAKE_PASSWORD or SNOWFLAKE_PRIVATE_KEY".to_owned(),
+            ))
+        };
+
+        Ok(AuthArgs {
+            account_identifier: std::env::var("SNOWFLAKE_ACCOUNT")
+                .map_err(|_| MissingEnvArgument("SNOWFLAKE_ACCOUNT".to_owned()))?,
+            warehouse: std::env::var("SNOWLFLAKE_WAREHOUSE").ok(),
+            database: std::env::var("SNOWFLAKE_DATABASE").ok(),
+            schema: std::env::var("SNOWFLAKE_SCHEMA").ok(),
+            username: std::env::var("SNOWFLAKE_USER")
+                .map_err(|_| MissingEnvArgument("SNOWFLAKE_USER".to_owned()))?,
+            role: std::env::var("SNOWFLAKE_ROLE").ok(),
+            auth_type: auth_type?,
+        })
+    }
 }
 
 pub enum AuthType {
@@ -353,6 +380,10 @@ impl SnowflakeApi {
             session,
             account_identifier,
         })
+    }
+
+    pub fn from_env() -> Result<Self, SnowflakeApiError> {
+        SnowflakeApiBuilder::new(AuthArgs::from_env()?).build()
     }
 
     /// Closes the current session, this is necessary to clean up temporary objects (tables, functions, etc)
