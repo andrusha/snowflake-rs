@@ -31,15 +31,15 @@ struct Args {
 
     /// Database name
     #[arg(short, long)]
-    database: String,
+    database: Option<String>,
 
     /// Schema name
     #[arg(long)]
-    schema: String,
+    schema: Option<String>,
 
     /// Warehouse
     #[arg(short, long)]
-    warehouse: String,
+    warehouse: Option<String>,
 
     /// username to whom the private key belongs to
     #[arg(short, long)]
@@ -47,7 +47,7 @@ struct Args {
 
     /// role which user will assume
     #[arg(short, long)]
-    role: String,
+    role: Option<String>,
 
     /// sql statement to execute and print result from
     #[arg(long)]
@@ -69,21 +69,21 @@ async fn main() -> Result<()> {
             let pem = fs::read_to_string(pkey)?;
             SnowflakeApi::with_certificate_auth(
                 &args.account_identifier,
-                Some(&args.warehouse),
-                Some(&args.database),
-                Some(&args.schema),
+                args.warehouse.as_deref(),
+                args.database.as_deref(),
+                args.schema.as_deref(),
                 &args.username,
-                Some(&args.role),
+                args.role.as_deref(),
                 &pem,
             )?
         }
         (None, Some(pwd)) => SnowflakeApi::with_password_auth(
             &args.account_identifier,
-            Some(&args.warehouse),
-            Some(&args.database),
-            Some(&args.schema),
+            args.warehouse.as_deref(),
+            args.database.as_deref(),
+            args.schema.as_deref(),
             &args.username,
-            Some(&args.role),
+            args.role.as_deref(),
             pwd,
         )?,
         _ => {
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
                     println!("{}", pretty_format_batches(&a).unwrap());
                 }
                 QueryResult::Json(j) => {
-                    println!("{}", j.to_string());
+                    println!("{j}");
                 }
                 QueryResult::Empty => {
                     println!("Query finished successfully")
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         }
         Output::Json => {
             let res = api.exec_json(&args.sql).await?;
-            println!("{}", res.to_string());
+            println!("{res}");
         }
         Output::Query => {
             let res = api.exec_response(&args.sql).await?;

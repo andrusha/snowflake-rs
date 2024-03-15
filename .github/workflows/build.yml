@@ -16,11 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Run cargo check
         uses: actions-rs/cargo@v1
@@ -32,12 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
+      - run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: cargo fmt
         uses: actions-rs/cargo@v1
@@ -56,11 +47,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
@@ -82,11 +70,7 @@ jobs:
       CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Install packages
         run: |
@@ -118,11 +102,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:

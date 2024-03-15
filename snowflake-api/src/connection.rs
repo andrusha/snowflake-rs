@@ -42,25 +42,25 @@ pub enum QueryType {
 }
 
 impl QueryType {
-    fn query_context(&self) -> QueryContext {
+    const fn query_context(&self) -> QueryContext {
         match self {
-            QueryType::LoginRequest => QueryContext {
+            Self::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
                 accept_mime: "application/json",
             },
-            QueryType::TokenRequest => QueryContext {
+            Self::TokenRequest => QueryContext {
                 path: "/session/token-request",
                 accept_mime: "application/snowflake",
             },
-            QueryType::CloseSession => QueryContext {
+            Self::CloseSession => QueryContext {
                 path: "session",
                 accept_mime: "application/snowflake",
             },
-            QueryType::JsonQuery => QueryContext {
+            Self::JsonQuery => QueryContext {
                 path: "queries/v1/query-request",
                 accept_mime: "application/json",
             },
-            QueryType::ArrowQuery => QueryContext {
+            Self::ArrowQuery => QueryContext {
                 path: "queries/v1/query-request",
                 accept_mime: "application/snowflake",
             },
@@ -77,9 +77,28 @@ pub struct Connection {
 
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
+        let client = Self::default_client_builder()?;
+
+        Ok(Self::new_with_middware(client.build()))
+    }
+
+    /// Allow a user to provide their own middleware
+    ///
+    /// Users can provide their own middleware to the connection like this:
+    /// ```rust
+    /// use snowflake_api::connection::Connection;
+    /// let mut client = Connection::default_client_builder();
+    ///  // modify the client builder here
+    /// let connection = Connection::new_with_middware(client.unwrap().build());
+    /// ```
+    /// This is not intended to be called directly, but is used by `SnowflakeApiBuilder::with_client`
+    pub fn new_with_middware(client: ClientWithMiddleware) -> Self {
+        Self { client }
+    }
+
+    pub fn default_client_builder() -> Result<reqwest_middleware::ClientBuilder, ConnectionError> {
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
 
-        // use builder to fail safely, unlike client new
         let client = reqwest::ClientBuilder::new()
             .user_agent("Rust/0.0.1")
             .gzip(true)
@@ -90,11 +109,8 @@ impl Connection {
 
         let client = client.build()?;
 
-        let client = reqwest_middleware::ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build();
-
-        Ok(Connection { client })
+        Ok(reqwest_middleware::ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy)))
     }
 
     /// Perform request of given query type with extra body or parameters

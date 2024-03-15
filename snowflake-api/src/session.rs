@@ -25,6 +25,9 @@ pub enum AuthError {
     #[error(transparent)]
     RequestError(#[from] connection::ConnectionError),
 
+    #[error("Environment variable `{0}` is required, but were not set")]
+    MissingEnvArgument(String),
+
     #[error("Password auth was requested, but password wasn't provided")]
     MissingPassword,
 
@@ -34,6 +37,8 @@ pub enum AuthError {
     #[error("Unexpected API response")]
     UnexpectedResponse,
 
+    // todo: add code mapping to meaningful message and/or refer to docs
+    //   eg https://docs.snowflake.com/en/user-guide/key-pair-auth-troubleshooting
     #[error("Failed to authenticate. Error code: {0}. Message: {1}")]
     AuthFailed(String, String),
 
@@ -75,11 +80,13 @@ impl AuthToken {
         let valid_for = if validity_in_seconds < 0 {
             Duration::from_secs(u64::MAX)
         } else {
-            Duration::from_secs(validity_in_seconds as u64)
+            // Note for reviewer: I beliebe this only fails on negative numbers. I imagine we will
+            // never get negative numbers, but if we do, is MAX or 0 a more sane default?
+            Duration::from_secs(u64::try_from(validity_in_seconds).unwrap_or(u64::MAX))
         };
         let issued_on = Instant::now();
 
-        AuthToken {
+        Self {
             token,
             valid_for,
             issued_on,
@@ -149,13 +156,13 @@ impl Session {
         let role = role.map(str::to_uppercase);
         let private_key_pem = Some(private_key_pem.to_string());
 
-        Session {
+        Self {
             connection,
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
-            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
+            warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
@@ -186,12 +193,12 @@ impl Session {
         let password = Some(password.to_string());
         let role = role.map(str::to_uppercase);
 
-        Session {
+        Self {
             connection,
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Password,
             account_identifier,
-            warehouse: warehouse.map(|warehouse| warehouse.to_uppercase()),
+            warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
@@ -207,17 +214,17 @@ impl Session {
         if auth_tokens.is_none()
             || auth_tokens
                 .as_ref()
-                .map(|at| at.master_token.is_expired())
-                .unwrap_or(false)
+                .is_some_and(|at| at.master_token.is_expired())
         {
             // Create new session if tokens are absent or can not be exchange
             let tokens = match self.auth_type {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
-                    #[cfg(feature = "cert-auth")]
-                    return self.create(self.cert_request_body()?).await;
-                    #[cfg(not(feature = "cert-auth"))]
-                    return Err(AuthError::MissingCertificate);
+                    if cfg!(feature = "cert-auth") {
+                        self.create(self.cert_request_body()?).await
+                    } else {
+                        Err(AuthError::MissingCertificate)?
+                    }
                 }
                 AuthType::Password => {
                     log::info!("Starting session with password authentication");
@@ -227,8 +234,7 @@ impl Session {
             *auth_tokens = Some(tokens);
         } else if auth_tokens
             .as_ref()
-            .map(|at| at.session_token.is_expired())
-            .unwrap_or(false)
+            .is_some_and(|at| at.session_token.is_expired())
         {
             // Renew old session token
             let tokens = self.renew().await?;
@@ -260,7 +266,7 @@ impl Session {
             match resp {
                 AuthResponse::Close(_) => Ok(()),
                 AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                    e.data.error_code,
+                    e.code.unwrap_or_default(),
                     e.message.unwrap_or_default(),
                 )),
                 _ => Err(AuthError::UnexpectedResponse),
@@ -319,7 +325,7 @@ impl Session {
         }
 
         if let Some(role) = &self.role {
-            get_params.push(("roleName", role.as_str()))
+            get_params.push(("roleName", role.as_str()));
         }
 
         let resp = self
@@ -347,7 +353,7 @@ impl Session {
                 })
             }
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                e.data.error_code,
+                e.code.unwrap_or_default(),
                 e.message.unwrap_or_default(),
             )),
             _ => Err(AuthError::UnexpectedResponse),
@@ -358,7 +364,7 @@ impl Session {
         LoginRequestCommon {
             client_app_id: "Go".to_string(),
             client_app_version: "1.6.22".to_string(),
-            svn_revision: "".to_string(),
+            svn_revision: String::new(),
             account_name: self.account_identifier.clone(),
             login_name: self.username.clone(),
             session_parameters: SessionParameters {
@@ -408,7 +414,7 @@ impl Session {
                     })
                 }
                 AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                    e.data.error_code,
+                    e.code.unwrap_or_default(),
                     e.message.unwrap_or_default(),
                 )),
                 _ => Err(AuthError::UnexpectedResponse),
