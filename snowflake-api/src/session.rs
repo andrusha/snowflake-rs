@@ -34,15 +34,6 @@ pub enum AuthError {
     #[error("Certificate auth was requested, but certificate wasn't provided")]
     MissingCertificate,
 
-    #[error("Account identifier is missing")]
-    MissingAccount,
-
-    #[error("Private key is missing")]
-    MissingPrivateKey,
-
-    #[error("Username is missing")]
-    MissingUsername,
-
     #[error("Unexpected API response")]
     UnexpectedResponse,
 
