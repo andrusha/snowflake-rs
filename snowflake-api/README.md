@@ -6,22 +6,23 @@ Snowflake library for undocumented public API. If you want to query documented p
 
 Since it does a lot of I/O the library is async-only, and currently has hard dependency on [tokio](https://tokio.rs/) as a runtime due to use of [reqwest](https://github.com/seanmonstar/reqwest).
 
-- [x] Single statements
+- [x] Single statements [example](./examples/run_sql.rs)
 - [ ] Multiple statements
 - [ ] Async requests (is it needed if whole library is async?)
 - [x] Query results in [Arrow](https://arrow.apache.org/)
-- [ ] Chunked query results
-- [x] Password auth
-- [x] Certificate auth
+- [x] Chunked query results
+- [x] Password, certificate, env auth
 - [ ] Browser-auth
 - [x] Closing session
 - [x] Token renewal
-- [x] PUT support
+- [x] PUT support [example](./examples/filetransfer.rs)
 - [ ] GET support
 - [x] AWS integration
 - [ ] GCloud integration
 - [ ] Azure integration
 - [x] Parallel uploading of small files
+- [x] Polars support [example](./examples/polars/src/main.rs)
+- [x] Tracing / custom reqwest middlware [example](./examples/tracing/src/main.rs)
 
 ## Why
 
@@ -37,7 +38,7 @@ In your Cargo.toml:
 
 ```toml
 [dependencies]
-snowflake-api = "0.1.0"
+snowflake-api = "0.7.0"
 ```
 
 Check [examples](./examples) for working programs using the library.
@@ -57,6 +58,20 @@ async fn run_query(sql: &str) -> Result<QueryResult> {
         Some("ROLE"),
         "PASSWORD",
     )?;
+    let res = api.exec(sql).await?;
+
+    Ok(res)
+}
+```
+
+Or using environment variables:
+
+```rust
+ use anyhow::Result;
+use snowflake_api::{QueryResult, SnowflakeApi};
+
+async fn run_query(sql: &str) -> Result<QueryResult> {
+    let mut api = SnowflakeApi::from_env()?;
     let res = api.exec(sql).await?;
 
     Ok(res)

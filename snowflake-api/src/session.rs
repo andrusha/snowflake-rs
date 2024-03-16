@@ -25,6 +25,9 @@ pub enum AuthError {
     #[error(transparent)]
     RequestError(#[from] connection::ConnectionError),
 
+    #[error("Environment variable `{0}` is required, but were not set")]
+    MissingEnvArgument(String),
+
     #[error("Password auth was requested, but password wasn't provided")]
     MissingPassword,
 
