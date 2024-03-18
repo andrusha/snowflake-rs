@@ -24,6 +24,12 @@ pub enum ConnectionError {
 
     #[error(transparent)]
     InvalidHeader(#[from] header::InvalidHeaderValue),
+
+    #[error("Unexpected response: {response}. Error: {source}")]
+    UnexpectedResponse {
+        source: serde_json::Error,
+        response: String,
+    },
 }
 
 /// Container for query parameters
@@ -171,7 +177,15 @@ impl Connection {
             .send()
             .await?;
 
-        Ok(resp.json::<R>().await?)
+        let raw_response = resp.text().await?;
+
+        match serde_json::from_str::<R>(&raw_response) {
+            Ok(r) => Ok(r),
+            Err(e) => Err(ConnectionError::UnexpectedResponse {
+                source: e,
+                response: raw_response,
+            }),
+        }
     }
 
     pub async fn get_chunk(
