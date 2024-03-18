@@ -54,7 +54,6 @@ pub struct ExecErrorResponseData {
     pub line: Option<i64>,
     pub pos: Option<i64>,
 
-    // fixme: only valid for exec query response error? present in any exec query response?
     pub query_id: Option<String>,
     pub sql_state: Option<String>,
 }
