@@ -177,15 +177,15 @@ impl Connection {
             .send()
             .await?;
 
-        let raw_response = resp.text().await?;
+        Ok(resp.json::<R>().await?)
 
-        match serde_json::from_str::<R>(&raw_response) {
-            Ok(r) => Ok(r),
-            Err(e) => Err(ConnectionError::UnexpectedResponse {
-                source: e,
-                response: raw_response,
-            }),
-        }
+        // match response {
+        //     ConnectionError::Au,
+        //     Err(e) => Err(ConnectionError::UnexpectedResponse {
+        //         source: e,
+        //         response: raw_response,
+        //     }),
+        // }
     }
 
     pub async fn get_chunk(
