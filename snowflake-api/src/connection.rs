@@ -24,6 +24,12 @@ pub enum ConnectionError {
 
     #[error(transparent)]
     InvalidHeader(#[from] header::InvalidHeaderValue),
+
+    #[error("Invalid account identifier: {0}")]
+    InvalidAccountIdentifier(String),
+
+    #[error("Unexpected response from server: {0}")]
+    UnexpectedResponse(String),
 }
 
 /// Container for query parameters
@@ -171,7 +177,21 @@ impl Connection {
             .send()
             .await?;
 
-        Ok(resp.json::<R>().await?)
+        if resp.status() == reqwest::StatusCode::FORBIDDEN {
+            return Err(ConnectionError::InvalidAccountIdentifier(
+                account_identifier.to_string(),
+            ));
+        } else if !resp.status().is_success() {
+            let raw_response = resp.text().await?;
+            return Err(ConnectionError::UnexpectedResponse(raw_response));
+        }
+
+        let raw_response = resp.text().await?;
+
+        match serde_json::from_str(&raw_response) {
+            Ok(response) => Ok(response),
+            Err(_) => Err(ConnectionError::UnexpectedResponse(raw_response)),
+        }
     }
 
     pub async fn get_chunk(

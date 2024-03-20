@@ -61,7 +61,11 @@ pub struct ExecErrorResponseData {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthErrorResponseData {
-    pub authn_method: String,
+    pub age: Option<i64>,
+    pub error_code: Option<String>,
+    pub internal_error: Option<bool>,
+    pub next_action: Option<String>,
+    pub authn_method: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
