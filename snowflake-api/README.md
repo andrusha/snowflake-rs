@@ -20,7 +20,8 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 - [x] AWS integration
 - [ ] GCloud integration
 - [ ] Azure integration
-- [ ] Parallel uploading of small files
+- [x] Parallel uploading of small files
+- [x] Glob support for PUT (eg `*.csv`)
 - [x] Polars support [example](./examples/polars/src/main.rs)
 - [x] Tracing / custom reqwest middlware [example](./examples/tracing/src/main.rs)
 

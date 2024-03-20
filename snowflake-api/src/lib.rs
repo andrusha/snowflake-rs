@@ -15,7 +15,6 @@ clippy::missing_panics_doc
 
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::path::Path;
 use std::sync::Arc;
 
 use arrow::error::ArrowError;
@@ -24,22 +23,17 @@ use arrow::record_batch::RecordBatch;
 use base64::Engine;
 use bytes::{Buf, Bytes};
 use futures::future::try_join_all;
-use object_store::aws::AmazonS3Builder;
-use object_store::local::LocalFileSystem;
-use object_store::ObjectStore;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 
-use crate::connection::{Connection, ConnectionError};
 use responses::ExecResponse;
 use session::{AuthError, Session};
 
 use crate::connection::QueryType;
+use crate::connection::{Connection, ConnectionError};
 use crate::requests::ExecRequest;
-use crate::responses::{
-    AwsPutGetStageInfo, ExecResponseRowType, PutGetExecResponse, PutGetStageInfo, SnowflakeType,
-};
+use crate::responses::{ExecResponseRowType, SnowflakeType};
 use crate::session::AuthError::MissingEnvArgument;
 
 pub mod connection;
@@ -47,6 +41,7 @@ pub mod connection;
 mod migration;
 #[cfg(feature = "polars")]
 mod polars;
+mod put;
 mod requests;
 mod responses;
 mod session;
@@ -80,6 +75,9 @@ pub enum SnowflakeApiError {
     #[error(transparent)]
     ObjectStorePathError(#[from] object_store::path::Error),
 
+    #[error(transparent)]
+    TokioTaskJoinError(#[from] tokio::task::JoinError),
+
     #[error("Snowflake API error. Code: `{0}`. Message: `{1}`")]
     ApiError(String, String),
 
@@ -94,6 +92,12 @@ pub enum SnowflakeApiError {
 
     #[error("Unexpected API response")]
     UnexpectedResponse,
+
+    #[error(transparent)]
+    GlobPatternError(#[from] glob::PatternError),
+
+    #[error(transparent)]
+    GlobError(#[from] glob::GlobError),
 }
 
 /// Even if Arrow is specified as a return type non-select queries
@@ -276,11 +280,11 @@ impl SnowflakeApiBuilder {
 
         let account_identifier = self.auth.account_identifier.to_uppercase();
 
-        Ok(SnowflakeApi {
-            connection: Arc::clone(&connection),
+        Ok(SnowflakeApi::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
     }
 }
 
@@ -292,6 +296,14 @@ pub struct SnowflakeApi {
 }
 
 impl SnowflakeApi {
+    /// Create a new `SnowflakeApi` object with an existing connection and session.
+    pub fn new(connection: Arc<Connection>, session: Session, account_identifier: String) -> Self {
+        Self {
+            connection,
+            session,
+            account_identifier,
+        }
+    }
     /// Initialize object with password auth. Authentication happens on the first request.
     pub fn with_password_auth(
         account_identifier: &str,
@@ -316,11 +328,11 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(Self {
-            connection: Arc::clone(&connection),
+        Ok(Self::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
     }
 
     /// Initialize object with private certificate auth. Authentication happens on the first request.
@@ -347,11 +359,11 @@ impl SnowflakeApi {
         );
 
         let account_identifier = account_identifier.to_uppercase();
-        Ok(Self {
-            connection: Arc::clone(&connection),
+        Ok(Self::new(
+            Arc::clone(&connection),
             session,
             account_identifier,
-        })
+        ))
     }
 
     pub fn from_env() -> Result<Self, SnowflakeApiError> {
@@ -383,7 +395,6 @@ impl SnowflakeApi {
         // put commands go through a different flow and result is side-effect
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
-
             self.exec_put(sql).await.map(|()| RawQueryResult::Empty)
         } else {
             self.exec_arrow_raw(sql).await
@@ -398,63 +409,12 @@ impl SnowflakeApi {
 
         match resp {
             ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::PutGet(pg) => self.put(pg).await,
+            ExecResponse::PutGet(pg) => put::put(pg).await,
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
             )),
         }
-    }
-
-    async fn put(&self, resp: PutGetExecResponse) -> Result<(), SnowflakeApiError> {
-        match resp.data.stage_info {
-            PutGetStageInfo::Aws(info) => self.put_to_s3(&resp.data.src_locations, info).await,
-            PutGetStageInfo::Azure(_) => Err(SnowflakeApiError::Unimplemented(
-                "PUT local file requests for Azure".to_string(),
-            )),
-            PutGetStageInfo::Gcs(_) => Err(SnowflakeApiError::Unimplemented(
-                "PUT local file requests for GCS".to_string(),
-            )),
-        }
-    }
-
-    async fn put_to_s3(
-        &self,
-        src_locations: &[String],
-        info: AwsPutGetStageInfo,
-    ) -> Result<(), SnowflakeApiError> {
-        let (bucket_name, bucket_path) = info
-            .location
-            .split_once('/')
-            .ok_or(SnowflakeApiError::InvalidBucketPath(info.location.clone()))?;
-
-        let s3 = AmazonS3Builder::new()
-            .with_region(info.region)
-            .with_bucket_name(bucket_name)
-            .with_access_key_id(info.creds.aws_key_id)
-            .with_secret_access_key(info.creds.aws_secret_key)
-            .with_token(info.creds.aws_token)
-            .build()?;
-
-        // todo: security vulnerability, external system tells you which local files to upload
-        for src_path in src_locations {
-            let path = Path::new(src_path);
-            let filename = path
-                .file_name()
-                .ok_or(SnowflakeApiError::InvalidLocalPath(src_path.clone()))?;
-
-            // fixme: unwrap
-            let dest_path = format!("{}{}", bucket_path, filename.to_str().unwrap());
-            let dest_path = object_store::path::Path::parse(dest_path)?;
-
-            let src_path = object_store::path::Path::parse(src_path)?;
-
-            let fs = LocalFileSystem::new().get(&src_path).await?;
-
-            s3.put(&dest_path, fs.bytes().await?).await?;
-        }
-
-        Ok(())
     }
 
     /// Useful for debugging to get the straight query response
