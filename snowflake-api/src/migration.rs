@@ -7,13 +7,12 @@ use async_trait::async_trait;
 use refinery_core::traits::r#async::{AsyncMigrate, AsyncQuery, AsyncTransaction};
 use refinery_core::Migration;
 
-use serde::{de, Deserialize};
+use serde::Deserialize;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
-use tap::Tap;
 use thiserror::Error;
-use time::format_description::well_known::Rfc3339;
+
 use time::OffsetDateTime;
 
 use crate::{QueryResult, SnowflakeApi, SnowflakeApiError};
@@ -34,63 +33,6 @@ enum State {
 enum TypeInner {
     Versioned,
     Unversioned,
-}
-
-/// copied from `refinery_core`
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MigrationInner {
-    state: State,
-    name: String,
-    checksum: u64,
-    version: i32,
-    prefix: TypeInner,
-    sql: Option<String>,
-    #[serde(deserialize_with = "deserialize_date")]
-    applied_on: Option<OffsetDateTime>,
-}
-
-fn deserialize_date<'de, D>(deserializer: D) -> Result<Option<OffsetDateTime>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    match s {
-        Some(s) => Ok(Some(
-            OffsetDateTime::parse(&s, &Rfc3339).map_err(de::Error::custom)?,
-        )),
-        None => Ok(None),
-    }
-}
-
-impl MigrationInner {
-    fn applied(
-        version: i32,
-        name: String,
-        applied_on: OffsetDateTime,
-        checksum: u64,
-    ) -> MigrationInner {
-        MigrationInner {
-            state: State::Applied,
-            name,
-            checksum,
-            version,
-            // applied migrations are always versioned
-            prefix: TypeInner::Versioned,
-            sql: None,
-            applied_on: Some(applied_on),
-        }
-    }
-}
-
-impl From<MigrationInner> for Migration {
-    fn from(inner: MigrationInner) -> Self {
-        assert_eq!(
-            std::mem::size_of::<Migration>(),
-            std::mem::size_of::<MigrationInner>()
-        );
-        unsafe { std::mem::transmute(inner) }
-    }
 }
 
 #[async_trait]
@@ -172,11 +114,7 @@ impl AsyncQuery<Vec<Migration>> for SnowflakeApi {
             }
         };
 
-        Ok(res
-            .into_iter()
-            .map(Migration::from)
-            .tap(|m| log::debug!("{m:#?}"))
-            .collect())
+        Ok(res)
     }
 }
 
@@ -237,9 +175,7 @@ fn get_column_string(batch: &RecordBatch, name: &str) -> Result<StringArray, Mig
     Ok(array.clone())
 }
 
-fn result_to_migrations(
-    arrow: Vec<RecordBatch>,
-) -> Result<Vec<MigrationInner>, MigrationArrowError> {
+fn result_to_migrations(arrow: Vec<RecordBatch>) -> Result<Vec<Migration>, MigrationArrowError> {
     // convert arrow to Vec<MigrationInner>
     //
     // We have to do this because Snowflake select from will always
@@ -305,14 +241,14 @@ fn result_to_migrations(
     // Safety: We are sure that all arrays have the same length
     let res = (0..versions.len())
         .map(|i| {
-            MigrationInner::applied(
+            Migration::applied(
                 versions[i],
                 names[i].clone(),
                 applied_ons[i],
                 checksums[i] as u64,
             )
         })
-        .collect::<Vec<MigrationInner>>();
+        .collect::<Vec<Migration>>();
 
     Ok(res)
 }
