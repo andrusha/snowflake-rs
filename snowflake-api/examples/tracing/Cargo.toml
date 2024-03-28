@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
-arrow = { version = "50.0.0", features = ["prettyprint"] }
+arrow = { version = "51", features = ["prettyprint"] }
 dotenv = "0.15.0"
 snowflake-api = { path = "../../../snowflake-api" }
 

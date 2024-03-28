@@ -57,7 +57,7 @@ async fn run_in_span(api: &snowflake_api::SnowflakeApi) -> anyhow::Result<()> {
 
     match res {
         QueryResult::Arrow(a) => {
-            println!("{}", pretty_format_batches(&a).unwrap());
+            println!("{}", pretty_format_batches(&a[..]).unwrap());
         }
         QueryResult::Json(j) => {
             println!("{}", j);
