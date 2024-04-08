@@ -12,5 +12,5 @@ tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3"
 
-refinery = { git = "https://github.com/wseaton/refinery", branch = "public-migration-applied" }
+refinery = { version = "0.8.14" }
 snowflake-api = { path = "../../../snowflake-api", features = ["refinery"] }
