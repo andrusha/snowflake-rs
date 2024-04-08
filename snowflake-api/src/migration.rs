@@ -4,6 +4,7 @@ use arrow::array::{
 };
 use arrow::datatypes::ArrowPrimitiveType;
 use async_trait::async_trait;
+
 use refinery_core::traits::r#async::{AsyncMigrate, AsyncQuery, AsyncTransaction};
 use refinery_core::Migration;
 
@@ -13,6 +14,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use thiserror::Error;
 
+use itertools::multizip;
 use time::OffsetDateTime;
 
 use crate::{QueryResult, SnowflakeApi, SnowflakeApiError};
@@ -136,7 +138,7 @@ pub enum MigrationArrowError {
     #[error("Error parsing migration arrow")]
     ArrowError(#[from] arrow::error::ArrowError),
 
-    #[error("Unexpected None value")]
+    #[error("Unexpected None value, the record batches are unaligned")]
     None,
 
     #[error("Error handling Snowflake timestamp")]
@@ -238,15 +240,9 @@ fn result_to_migrations(arrow: Vec<RecordBatch>) -> Result<Vec<Migration>, Migra
         return Err(MigrationArrowError::None);
     }
 
-    // Safety: We are sure that all arrays have the same length
-    let res = (0..versions.len())
-        .map(|i| {
-            Migration::applied(
-                versions[i],
-                names[i].clone(),
-                applied_ons[i],
-                checksums[i] as u64,
-            )
+    let res = multizip((versions, names, applied_ons, checksums))
+        .map(|(version, name, applied_on, checksum)| {
+            Migration::applied(version, name, applied_on, checksum as u64)
         })
         .collect::<Vec<Migration>>();
 
