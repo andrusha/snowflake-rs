@@ -9,6 +9,7 @@ pub enum ExecResponse {
     Query(QueryExecResponse),
     PutGet(PutGetExecResponse),
     Error(ExecErrorResponse),
+    Other(serde_json::Value),
 }
 
 #[allow(clippy::large_enum_variant)]

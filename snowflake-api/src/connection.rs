@@ -163,6 +163,9 @@ impl Connection {
         }
 
         // todo: persist client to use connection polling
+        // println!("{:?}", url);
+        // println!("{:?}", headers);
+        // println!("{:?}", json_str);
         let resp = self
             .client
             .post(url)
@@ -195,5 +198,25 @@ impl Connection {
             .bytes()
             .await?;
         Ok(bytes)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde::{Serialize, Deserialize};
+    use crate::responses::AuthResponse;
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Test {
+        data: String
+    }
+    
+    #[tokio::test]
+    async fn test_request_oauth() {
+        let connection = Connection::new().unwrap();
+        let v = Test { data: "Hello".to_string() };
+        let result: AuthResponse = connection.request(QueryType::LoginRequest, "", &[], Some("Bearer TOKEN"), v).await.unwrap();
+        println!("{:?}", result);
     }
 }

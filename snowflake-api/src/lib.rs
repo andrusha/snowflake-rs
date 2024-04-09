@@ -14,7 +14,7 @@ clippy::missing_panics_doc
 )]
 
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::{io, fs};
 use std::sync::Arc;
 
 use arrow::error::ArrowError;
@@ -30,6 +30,7 @@ use thiserror::Error;
 use responses::ExecResponse;
 use session::{AuthError, Session};
 
+use crate::session::AuthParts;
 use crate::connection::QueryType;
 use crate::connection::{Connection, ConnectionError};
 use crate::requests::ExecRequest;
@@ -412,6 +413,10 @@ impl SnowflakeApi {
                 e.data.error_code,
                 e.message.unwrap_or_default(),
             )),
+            ExecResponse::Other(e) => Err(SnowflakeApiError::ApiError(
+                9999.to_string(),
+                e.to_string()
+            ))
         }
     }
 
@@ -443,6 +448,10 @@ impl SnowflakeApi {
                 e.data.error_code,
                 e.message.unwrap_or_default(),
             )),
+            ExecResponse::Other(e) => Err(SnowflakeApiError::ApiError(
+                9999.to_string(),
+                e.to_string()
+            ))
         }?;
 
         // if response was empty, base64 data is empty string
@@ -488,7 +497,19 @@ impl SnowflakeApi {
     ) -> Result<R, SnowflakeApiError> {
         log::debug!("Executing: {}", sql_text);
 
-        let parts = self.session.get_token().await?;
+        // let mut parts = self.session.get_token().await?;
+        let parts: AuthParts;
+        let path = "/snowflake/session/token";
+        if let Ok(contents) = fs::read_to_string(path) {
+            println!("Overiding with token: {:?}", contents);
+            parts = AuthParts {
+                session_token_auth_header: contents,
+                sequence_id: 1
+            };
+        }  else {
+            panic!("Failed to read the env var, using one provided by login")
+        }
+        println!("{:?}", parts);
 
         let body = ExecRequest {
             sql_text: sql_text.to_string(),
