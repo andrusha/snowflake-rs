@@ -26,16 +26,16 @@ bytes = "1"
 futures = "0.3"
 log = "0.4"
 regex = "1"
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
     "gzip",
     "json",
     "rustls-tls",
 ] }
-reqwest-middleware = "0.2"
-reqwest-retry = "0.4"
+reqwest-middleware = { version = "0.3", features = ["json"] }
+reqwest-retry = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-snowflake-jwt = { version = "0.3.0", optional = true }
+snowflake-jwt = { version = "0.3", optional = true }
 thiserror = "1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
