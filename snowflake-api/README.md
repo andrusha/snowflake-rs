@@ -8,7 +8,7 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 
 - [x] Single statements [example](./examples/run_sql.rs)
 - [ ] Multiple statements
-- [ ] Async requests (is it needed if whole library is async?)
+- [ ] Async requests (to allow for long-running queries and multi-statement)
 - [x] Query results in [Arrow](https://arrow.apache.org/)
 - [x] Chunked query results
 - [x] Password, certificate, env auth

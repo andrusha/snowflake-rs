@@ -1,6 +1,6 @@
 #![doc(
-    issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
-    test(no_crate_inject)
+issue_tracker_base_url = "https://github.com/mycelial/snowflake-rs/issues",
+test(no_crate_inject)
 )]
 #![doc = include_str!("../README.md")]
 #![warn(clippy::all, clippy::pedantic)]
@@ -13,6 +13,7 @@ clippy::future_not_send, // This one seems like something we should eventually f
 clippy::missing_panics_doc
 )]
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::path::Path;
@@ -31,10 +32,10 @@ use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 
-use crate::connection::{Connection, ConnectionError};
 use responses::ExecResponse;
 use session::{AuthError, Session};
 
+use crate::connection::{Connection, ConnectionError};
 use crate::connection::QueryType;
 use crate::requests::ExecRequest;
 use crate::responses::{
@@ -395,8 +396,9 @@ impl SnowflakeApi {
         log::debug!("Got PUT response: {:?}", resp);
 
         match resp {
-            ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
             ExecResponse::PutGet(pg) => self.put(pg).await,
+            // put-get by design is async, and isn't a query response
+            ExecResponse::MultiStatementQuery(_) | ExecResponse::AsyncQuery(_) | ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
@@ -479,6 +481,8 @@ impl SnowflakeApi {
             // processable response
             ExecResponse::Query(qr) => Ok(qr),
             ExecResponse::PutGet(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::AsyncQuery(_) => Err(SnowflakeApiError::Unimplemented("Async queries, ie the ones returning a handle to query id".to_owned())),
+            ExecResponse::MultiStatementQuery(_) => Err(SnowflakeApiError::Unimplemented("Multi-statement queries are not implemented as they require polling on the user-side".to_owned())),
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
@@ -505,7 +509,7 @@ impl SnowflakeApi {
                 self.connection
                     .get_chunk(&chunk.url, &resp.data.chunk_headers)
             }))
-            .await?;
+                .await?;
 
             // fixme: should base64 chunk go first?
             // fixme: if response is chunked is it both base64 + chunks or just chunks?
@@ -529,12 +533,17 @@ impl SnowflakeApi {
         log::debug!("Executing: {}", sql_text);
 
         let parts = self.session.get_token().await?;
+        // todo: move clientStartTime, requestId, request_guid from request parameters to request body into this map
+        let mut parameters = HashMap::new();
+        parameters.insert("MULTI_STATEMENT_COUNT".to_owned(), Self::count_statements(sql_text).to_string());
 
         let body = ExecRequest {
             sql_text: sql_text.to_string(),
             async_exec: false,
             sequence_id: parts.sequence_id,
             is_internal: false,
+            describe_only: false,
+            parameters,
         };
 
         let resp = self
@@ -549,5 +558,18 @@ impl SnowflakeApi {
             .await?;
 
         Ok(resp)
+    }
+
+    fn count_statements(sql_text: &str) -> usize {
+        // fixme: find better way to count split
+        let count = sql_text.chars().filter(|&c| c == ';').count();
+
+        if count == 0 {
+            // non-terminated single query is still a single query
+            1
+        } else {
+            // what if there are multiple queries, but the last one is not ;-terminated?
+            count
+        }
     }
 }

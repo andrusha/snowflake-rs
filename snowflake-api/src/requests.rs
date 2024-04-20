@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecRequest {
     pub sql_text: String,
-    pub async_exec: bool,
-    pub sequence_id: u64,
-    pub is_internal: bool,
+    pub async_exec: bool, // fixme: doesn't exist in .NET
+    pub sequence_id: u64, // fixme: doesn't exist in .NET
+    pub is_internal: bool, // fixme: doesn't exist in .NET
+    pub describe_only: bool, // fixme: optional in GO, required in .NET
+    pub parameters: HashMap<String, String>,
 }
 
 #[derive(Serialize, Debug)]

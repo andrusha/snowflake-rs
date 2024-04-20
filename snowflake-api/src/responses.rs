@@ -6,9 +6,12 @@ use serde::Deserialize;
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum ExecResponse {
-    Query(QueryExecResponse),
     PutGet(PutGetExecResponse),
-    Error(ExecErrorResponse),
+    AsyncQuery(AsyncQueryResponse),
+    MultiStatementQuery(MultiStatementQueryResponse),
+    Query(QueryExecResponse),
+    // before-last since has intersecting fields
+    Error(ExecErrorResponse), // last since essentially catch-all
 }
 
 // todo: add close session response, which should be just empty?
@@ -32,6 +35,8 @@ pub struct BaseRestResponse<D> {
     pub data: D,
 }
 
+pub type MultiStatementQueryResponse = BaseRestResponse<MultiStatementQueryResponseData>;
+pub type AsyncQueryResponse = BaseRestResponse<AsyncQueryResponseData>;
 pub type PutGetExecResponse = BaseRestResponse<PutGetResponseData>;
 pub type QueryExecResponse = BaseRestResponse<QueryExecResponseData>;
 pub type ExecErrorResponse = BaseRestResponse<ExecErrorResponseData>;
@@ -124,15 +129,21 @@ pub struct QueryExecResponseData {
     // is base64-encoded Arrow IPC payload
     pub rowset_base64: Option<String>,
     pub total: i64,
-    pub returned: i64,    // unused in .NET
-    pub query_id: String, // unused in .NET
+    pub returned: i64,
+    // unused in .NET
+    pub query_id: String,
+    // unused in .NET
     pub database_provider: Option<String>,
-    pub final_database_name: Option<String>, // unused in .NET
+    pub final_database_name: Option<String>,
+    // unused in .NET
     pub final_schema_name: Option<String>,
-    pub final_warehouse_name: Option<String>, // unused in .NET
-    pub final_role_name: String,              // unused in .NET
+    pub final_warehouse_name: Option<String>,
+    // unused in .NET
+    pub final_role_name: String,
+    // unused in .NET
     // only present on SELECT queries
-    pub number_of_binds: Option<i32>, // unused in .NET
+    pub number_of_binds: Option<i32>,
+    // unused in .NET
     // todo: deserialize into enum
     pub statement_type_id: i64,
     pub version: i64,
@@ -143,12 +154,6 @@ pub struct QueryExecResponseData {
     pub qrmk: Option<String>,
     #[serde(default)] // chunks are present
     pub chunk_headers: HashMap<String, String>,
-    // when async query is run (ping pong request?)
-    pub get_result_url: Option<String>,
-    // multi-statement response, comma-separated
-    pub result_ids: Option<String>,
-    // `progressDesc`, and `queryAbortAfterSecs` are not used but exist in .NET
-    // `sendResultTime`, `queryResultFormat`, `queryContext` also exist
 }
 
 #[derive(Deserialize, Debug)]
@@ -303,4 +308,25 @@ pub struct PutGetEncryptionMaterial {
     pub query_stage_master_key: String,
     pub query_id: String,
     pub smk_id: i64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AsyncQueryResponseData {
+    pub query_id: String,
+    pub get_result_url: String,
+    pub query_aborts_after_secs: i64,
+    pub progress_desc: Option<String>,
+}
+
+// fixme: this is not correct, but useful
+//   since the response will include more fields from [`QueryExecResponseData`]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiStatementQueryResponseData {
+    pub query_id: String,
+    // comma-separated
+    pub result_ids: String,
+    // comma-separated
+    pub result_types: String,
 }
