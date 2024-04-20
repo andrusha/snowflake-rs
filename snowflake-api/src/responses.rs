@@ -11,6 +11,16 @@ pub enum ExecResponse {
     Error(ExecErrorResponse),
 }
 
+impl ExecResponse {
+    pub fn is_async(&self) -> bool {
+        match self {
+            ExecResponse::Query(query) => query.is_async(),
+            ExecResponse::PutGet(put_get) => put_get.is_async(),
+            ExecResponse::Error(_) => false,
+        }
+    }
+}
+
 // todo: add close session response, which should be just empty?
 #[allow(clippy::large_enum_variant)]
 #[derive(Deserialize, Debug)]
@@ -30,6 +40,12 @@ pub struct BaseRestResponse<D> {
     pub message: Option<String>,
     pub success: bool,
     pub data: D,
+}
+
+impl<D> BaseRestResponse<D> {
+    pub fn is_async(&self) -> bool {
+        self.code == Some("333333".to_owned()) || self.code == Some("333334".to_owned())
+    }
 }
 
 pub type PutGetExecResponse = BaseRestResponse<PutGetResponseData>;

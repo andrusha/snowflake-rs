@@ -260,6 +260,7 @@ impl Session {
                     &[("delete", "true")],
                     Some(&tokens.session_token.auth_header()),
                     serde_json::Value::default(),
+                    None,
                 )
                 .await?;
 
@@ -336,6 +337,7 @@ impl Session {
                 &get_params,
                 None,
                 body,
+                None,
             )
             .await?;
         log::debug!("Auth response: {:?}", resp);
@@ -397,6 +399,7 @@ impl Session {
                     &[],
                     Some(&auth),
                     body,
+                    None,
                 )
                 .await?;
 
