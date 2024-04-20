@@ -81,11 +81,6 @@ pub struct Connection {
     client: ClientWithMiddleware,
 }
 
-pub enum Method {
-    Get,
-    Post,
-}
-
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
         let client = Self::default_client_builder()?;

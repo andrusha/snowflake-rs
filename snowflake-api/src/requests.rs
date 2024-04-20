@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Serialize, Debug)]
-pub struct EmptyRequest {}
+pub struct EmptyRequest;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]

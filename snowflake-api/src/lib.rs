@@ -486,7 +486,6 @@ impl SnowflakeApi {
         }?;
 
         while resp.is_async() {
-            // TODO(harry): refactor to use exponential backoff polling
             let url = resp.data.get_result_url.as_ref().unwrap();
             resp = match self.poll::<ExecResponse>(&url).await? {
                 ExecResponse::Query(qr) => qr,
@@ -502,6 +501,7 @@ impl SnowflakeApi {
 
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
+        // the unwrap is safe, because we checked for async status
         if resp.data.returned.unwrap() == 0 {
             log::debug!("Got response with 0 rows");
             Ok(RawQueryResult::Empty)
@@ -587,7 +587,7 @@ impl SnowflakeApi {
                 &self.account_identifier,
                 &[],
                 Some(&parts.session_token_auth_header),
-                EmptyRequest {},
+                EmptyRequest,
                 Some(get_result_url),
             )
             .await?;
