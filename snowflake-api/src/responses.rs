@@ -114,8 +114,8 @@ pub struct RenewSessionResponseData {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryExecResponseData {
-    pub parameters: Vec<NameValueParameter>,
-    pub rowtype: Vec<ExecResponseRowType>,
+    pub parameters: Option<Vec<NameValueParameter>>,
+    pub rowtype: Option<Vec<ExecResponseRowType>>,
     // default for non-SELECT queries
     // GET / PUT has their own response format
     pub rowset: Option<serde_json::Value>,
@@ -123,19 +123,19 @@ pub struct QueryExecResponseData {
     // default for all SELECT queries
     // is base64-encoded Arrow IPC payload
     pub rowset_base64: Option<String>,
-    pub total: i64,
-    pub returned: i64,    // unused in .NET
-    pub query_id: String, // unused in .NET
+    pub total: Option<i64>,
+    pub returned: Option<i64>,    // unused in .NET
+    pub query_id: Option<String>, // unused in .NET
     pub database_provider: Option<String>,
     pub final_database_name: Option<String>, // unused in .NET
     pub final_schema_name: Option<String>,
     pub final_warehouse_name: Option<String>, // unused in .NET
-    pub final_role_name: String,              // unused in .NET
+    pub final_role_name: Option<String>,              // unused in .NET
     // only present on SELECT queries
     pub number_of_binds: Option<i32>, // unused in .NET
     // todo: deserialize into enum
-    pub statement_type_id: i64,
-    pub version: i64,
+    pub statement_type_id: Option<i64>,
+    pub version: Option<i64>,
     // if response is chunked
     #[serde(default)] // soft-default to empty Vec if not present
     pub chunks: Vec<ExecResponseChunk>,
