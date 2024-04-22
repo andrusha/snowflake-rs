@@ -1,6 +1,9 @@
 use serde::Serialize;
 
 #[derive(Serialize, Debug)]
+pub struct EmptyRequest;
+
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecRequest {
     pub sql_text: String,
