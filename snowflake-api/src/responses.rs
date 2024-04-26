@@ -14,9 +14,9 @@ pub enum ExecResponse {
 impl ExecResponse {
     pub fn is_async(&self) -> bool {
         match self {
-            ExecResponse::Query(query) => query.is_async(),
-            ExecResponse::PutGet(put_get) => put_get.is_async(),
-            ExecResponse::Error(_) => false,
+            Self::Query(q) => q.is_async(),
+            Self::PutGet(p) => p.is_async(),
+            Self::Error(_) => false,
         }
     }
 }
@@ -132,8 +132,41 @@ pub struct RenewSessionResponseData {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub enum QueryExecResponseData {
+    Sync(SyncQueryExecResponseData),
+    Async(AsyncQueryExecResponseData),
+}
+
+impl QueryExecResponseData {
+    pub fn as_sync(self) -> Option<SyncQueryExecResponseData> {
+        if let Self::Sync(data) = self {
+            Some(data)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_async(self) -> Option<AsyncQueryExecResponseData> {
+        if let Self::Async(data) = self {
+            Some(data)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct QueryExecResponseData {
+pub struct AsyncQueryExecResponseData {
+    pub query_id: String,
+    pub get_result_url: String,
+    pub query_aborts_after_secs: i64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncQueryExecResponseData {
     pub parameters: Option<Vec<NameValueParameter>>,
     pub rowtype: Option<Vec<ExecResponseRowType>>,
     // default for non-SELECT queries
@@ -143,14 +176,14 @@ pub struct QueryExecResponseData {
     // default for all SELECT queries
     // is base64-encoded Arrow IPC payload
     pub rowset_base64: Option<String>,
-    pub total: Option<i64>,
-    pub returned: Option<i64>,    // unused in .NET
-    pub query_id: Option<String>, // unused in .NET
+    pub total: i64,
+    pub returned: i64,            // unused in .NET
+    pub query_id: String, // unused in .NET
     pub database_provider: Option<String>,
     pub final_database_name: Option<String>, // unused in .NET
     pub final_schema_name: Option<String>,
     pub final_warehouse_name: Option<String>, // unused in .NET
-    pub final_role_name: Option<String>,              // unused in .NET
+    pub final_role_name: Option<String>,      // unused in .NET
     // only present on SELECT queries
     pub number_of_binds: Option<i32>, // unused in .NET
     // todo: deserialize into enum
@@ -163,8 +196,6 @@ pub struct QueryExecResponseData {
     pub qrmk: Option<String>,
     #[serde(default)] // chunks are present
     pub chunk_headers: HashMap<String, String>,
-    // when async query is run (ping pong request?)
-    pub get_result_url: Option<String>,
     // multi-statement response, comma-separated
     pub result_ids: Option<String>,
     // `progressDesc`, and `queryAbortAfterSecs` are not used but exist in .NET
