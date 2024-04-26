@@ -95,9 +95,6 @@ pub enum SnowflakeApiError {
 
     #[error("Unexpected Async Query response")]
     UnexpectedAsyncQueryResponse,
-
-    #[error("Unexpected Sync Query response")]
-    UnexpectedSyncQueryResponse,
 }
 
 /// Even if Arrow is specified as a return type non-select queries
@@ -492,10 +489,7 @@ impl SnowflakeApi {
         }?;
 
         while resp.is_async() {
-            let async_data = match resp.data.as_async() {
-                Some(data) => data,
-                None => return Err(SnowflakeApiError::UnexpectedAsyncQueryResponse),
-            };
+            let async_data = resp.data.as_async()?;
             resp = match self.poll::<ExecResponse>(&async_data.get_result_url).await? {
                 ExecResponse::Query(qr) => qr,
                 ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
@@ -510,10 +504,8 @@ impl SnowflakeApi {
 
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
-        let sync_data = match resp.data.as_sync() {
-            Some(data) => data,
-            None => return Err(SnowflakeApiError::UnexpectedSyncQueryResponse),
-        };
+        // should be safe to ? here, as we've checked for async resp before
+        let sync_data = resp.data.as_sync()?;
         if sync_data.returned == 0 {
             log::debug!("Got response with 0 rows");
             Ok(RawQueryResult::Empty)

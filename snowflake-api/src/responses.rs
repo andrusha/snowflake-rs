@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+use crate::SnowflakeApiError;
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
@@ -139,19 +141,19 @@ pub enum QueryExecResponseData {
 }
 
 impl QueryExecResponseData {
-    pub fn as_sync(self) -> Option<SyncQueryExecResponseData> {
+    pub fn as_sync(self) -> Result<SyncQueryExecResponseData, SnowflakeApiError> {
         if let Self::Sync(data) = self {
-            Some(data)
+            Ok(data)
         } else {
-            None
+            Err(SnowflakeApiError::UnexpectedAsyncQueryResponse)
         }
     }
 
-    pub fn as_async(self) -> Option<AsyncQueryExecResponseData> {
+    pub fn as_async(self) -> Result<AsyncQueryExecResponseData, SnowflakeApiError> {
         if let Self::Async(data) = self {
-            Some(data)
+            Ok(data)
         } else {
-            None
+            Err(SnowflakeApiError::UnexpectedAsyncQueryResponse)
         }
     }
 }
