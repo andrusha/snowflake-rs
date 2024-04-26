@@ -92,6 +92,9 @@ pub enum SnowflakeApiError {
 
     #[error("Unexpected API response")]
     UnexpectedResponse,
+
+    #[error("Unexpected Async Query response")]
+    UnexpectedAsyncQueryResponse,
 }
 
 /// Even if Arrow is specified as a return type non-select queries
@@ -486,8 +489,8 @@ impl SnowflakeApi {
         }?;
 
         while resp.is_async() {
-            let url = resp.data.get_result_url.as_ref().unwrap();
-            resp = match self.poll::<ExecResponse>(&url).await? {
+            let async_data = resp.data.as_async()?;
+            resp = match self.poll::<ExecResponse>(&async_data.get_result_url).await? {
                 ExecResponse::Query(qr) => qr,
                 ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
                 ExecResponse::Error(e) => {
@@ -501,30 +504,30 @@ impl SnowflakeApi {
 
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
-        // the unwrap is safe, because we checked for async status
-        if resp.data.returned.unwrap() == 0 {
+        // should be safe to ? here, as we've checked for async resp before
+        let sync_data = resp.data.as_sync()?;
+        if sync_data.returned == 0 {
             log::debug!("Got response with 0 rows");
             Ok(RawQueryResult::Empty)
-        } else if let Some(value) = resp.data.rowset {
+        } else if let Some(value) = sync_data.rowset {
             log::debug!("Got JSON response");
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
             // information being passed through that fields.
             Ok(RawQueryResult::Json(JsonResult {
                 value,
-                schema: resp
-                    .data
+                schema: sync_data
                     .rowtype
                     .unwrap()
                     .into_iter()
                     .map(Into::into)
                     .collect(),
             }))
-        } else if let Some(base64) = resp.data.rowset_base64 {
+        } else if let Some(base64) = sync_data.rowset_base64 {
             // fixme: is it possible to give streaming interface?
-            let mut chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
+            let mut chunks = try_join_all(sync_data.chunks.iter().map(|chunk| {
                 self.connection
-                    .get_chunk(&chunk.url, &resp.data.chunk_headers)
+                    .get_chunk(&chunk.url, &sync_data.chunk_headers)
             }))
             .await?;
 
