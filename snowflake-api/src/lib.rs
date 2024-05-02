@@ -148,7 +148,7 @@ pub enum QueryResult {
 /// Can be transformed into [`QueryResult`]
 pub enum RawQueryResult {
     /// Arrow IPC chunks
-    /// see: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
+    /// see: <https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc>
     Bytes(Vec<Bytes>),
     /// Json payload is deserialized,
     /// as it's already a part of REST response
