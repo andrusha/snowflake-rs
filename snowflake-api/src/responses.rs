@@ -7,6 +7,7 @@ use serde::Deserialize;
 #[serde(untagged)]
 pub enum ExecResponse {
     Query(QueryExecResponse),
+    QueryAsync(QueryAsyncExecResponse),
     PutGet(PutGetExecResponse),
     Error(ExecErrorResponse),
 }
@@ -34,6 +35,7 @@ pub struct BaseRestResponse<D> {
 
 pub type PutGetExecResponse = BaseRestResponse<PutGetResponseData>;
 pub type QueryExecResponse = BaseRestResponse<QueryExecResponseData>;
+pub type QueryAsyncExecResponse = BaseRestResponse<QueryAsyncExecResponseData>;
 pub type ExecErrorResponse = BaseRestResponse<ExecErrorResponseData>;
 pub type AuthErrorResponse = BaseRestResponse<AuthErrorResponseData>;
 pub type AuthenticatorResponse = BaseRestResponse<AuthenticatorResponseData>;
@@ -54,7 +56,7 @@ pub struct ExecErrorResponseData {
     pub pos: Option<i64>,
 
     // fixme: only valid for exec query response error? present in any exec query response?
-    pub query_id: String,
+    pub query_id: Option<String>,
     pub sql_state: String,
 }
 
@@ -149,6 +151,13 @@ pub struct QueryExecResponseData {
     pub result_ids: Option<String>,
     // `progressDesc`, and `queryAbortAfterSecs` are not used but exist in .NET
     // `sendResultTime`, `queryResultFormat`, `queryContext` also exist
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryAsyncExecResponseData {
+    pub query_id: String,
+    pub get_result_url: String,
 }
 
 #[derive(Deserialize, Debug)]

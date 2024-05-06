@@ -29,8 +29,9 @@ pub enum ConnectionError {
 /// Container for query parameters
 /// This API has different endpoints and MIME types for different requests
 struct QueryContext {
-    path: &'static str,
+    path: String,
     accept_mime: &'static str,
+    method: reqwest::Method
 }
 
 pub enum QueryType {
@@ -39,30 +40,40 @@ pub enum QueryType {
     CloseSession,
     JsonQuery,
     ArrowQuery,
+    ArrowQueryResult(String),
 }
-
 impl QueryType {
-    const fn query_context(&self) -> QueryContext {
+    fn query_context(&self) -> QueryContext {
         match self {
             Self::LoginRequest => QueryContext {
-                path: "session/v1/login-request",
+                path: "session/v1/login-request".to_string(),
                 accept_mime: "application/json",
+                method: reqwest::Method::POST,
             },
             Self::TokenRequest => QueryContext {
-                path: "/session/token-request",
+                path: "/session/token-request".to_string(),
                 accept_mime: "application/snowflake",
+                method: reqwest::Method::POST,
             },
             Self::CloseSession => QueryContext {
-                path: "session",
+                path: "session".to_string(),
                 accept_mime: "application/snowflake",
+                method: reqwest::Method::POST,
             },
             Self::JsonQuery => QueryContext {
-                path: "queries/v1/query-request",
+                path: "queries/v1/query-request".to_string(),
                 accept_mime: "application/json",
+                method: reqwest::Method::POST,
             },
             Self::ArrowQuery => QueryContext {
-                path: "queries/v1/query-request",
+                path: "queries/v1/query-request".to_string(),
                 accept_mime: "application/snowflake",
+                method: reqwest::Method::POST,
+            },
+            Self::ArrowQueryResult(query_result_url) => QueryContext {
+                path: query_result_url.to_string(),
+                accept_mime: "application/snowflake",
+                method: reqwest::Method::GET,
             },
         }
     }
@@ -163,14 +174,22 @@ impl Connection {
         }
 
         // todo: persist client to use connection polling
-        let resp = self
-            .client
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
-
+        let resp = match context.method {
+            reqwest::Method::POST => self
+                .client
+                .post(url)
+                .headers(headers)
+                .json(&body)
+                .send()
+                .await?,
+            reqwest::Method::GET => self
+                .client
+                .get(url)
+                .headers(headers)
+                .send()
+                .await?,
+            _ => panic!("Unsupported method"),     
+        };
         Ok(resp.json::<R>().await?)
     }
 
