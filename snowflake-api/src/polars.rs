@@ -26,6 +26,7 @@ impl RawQueryResult {
             RawQueryResult::Bytes(bytes) => dataframe_from_bytes(bytes),
             RawQueryResult::Json(json) => dataframe_from_json(&json),
             RawQueryResult::Empty => Ok(DataFrame::empty()),
+            RawQueryResult::Stream(_) => todo!(),
         }
     }
 }
