@@ -32,7 +32,7 @@ use session::{AuthError, Session};
 
 use crate::connection::QueryType;
 use crate::connection::{Connection, ConnectionError};
-use crate::requests::ExecRequest;
+use crate::requests::{EmptyRequest, ExecRequest};
 use crate::responses::{ExecResponseRowType, SnowflakeType};
 use crate::session::AuthError::MissingEnvArgument;
 
@@ -435,7 +435,7 @@ impl SnowflakeApi {
             .await?;
         log::debug!("Got query response: {:?}", resp);
 
-        let resp = match resp {
+        let mut resp = match resp {
             // processable response
             ExecResponse::Query(qr) => Ok(qr),
             ExecResponse::PutGet(_) => Err(SnowflakeApiError::UnexpectedResponse),
@@ -445,9 +445,24 @@ impl SnowflakeApi {
             )),
         }?;
 
+        while resp.is_async() {
+            let url = resp.data.get_result_url.as_ref().unwrap();
+            resp = match self.poll::<ExecResponse>(&url).await? {
+                ExecResponse::Query(qr) => qr,
+                ExecResponse::PutGet(_) => return Err(SnowflakeApiError::UnexpectedResponse),
+                ExecResponse::Error(e) => {
+                    return Err(SnowflakeApiError::ApiError(
+                        e.data.error_code,
+                        e.message.unwrap_or_default(),
+                    ))
+                }
+            };
+        }
+
         // if response was empty, base64 data is empty string
+        // unwrap should be safe as we checked for async status
         // todo: still return empty arrow batch with proper schema? (schema always included)
-        if resp.data.returned == 0 {
+        if resp.data.returned.unwrap() == 0 {
             log::debug!("Got response with 0 rows");
             Ok(RawQueryResult::Empty)
         } else if let Some(value) = resp.data.rowset {
@@ -457,7 +472,13 @@ impl SnowflakeApi {
             // information being passed through that fields.
             Ok(RawQueryResult::Json(JsonResult {
                 value,
-                schema: resp.data.rowtype.into_iter().map(Into::into).collect(),
+                schema: resp
+                    .data
+                    .rowtype
+                    .unwrap()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }))
         } else if let Some(base64) = resp.data.rowset_base64 {
             // fixme: is it possible to give streaming interface?
@@ -505,6 +526,29 @@ impl SnowflakeApi {
                 &[],
                 Some(&parts.session_token_auth_header),
                 body,
+                None,
+            )
+            .await?;
+
+        Ok(resp)
+    }
+
+    async fn poll<R: serde::de::DeserializeOwned>(
+        &self,
+        get_result_url: &str,
+    ) -> Result<R, SnowflakeApiError> {
+        log::debug!("Polling: {}", get_result_url);
+
+        let parts = self.session.get_token().await?;
+        let resp = self
+            .connection
+            .request::<R>(
+                QueryType::ArrowQuery,
+                &self.account_identifier,
+                &[],
+                Some(&parts.session_token_auth_header),
+                EmptyRequest {},
+                Some(get_result_url),
             )
             .await?;
 

@@ -123,53 +123,62 @@ impl Connection {
         extra_get_params: &[(&str, &str)],
         auth: Option<&str>,
         body: impl serde::Serialize,
+        url_override: Option<&str>,
     ) -> Result<R, ConnectionError> {
         let context = query_type.query_context();
-
-        let request_id = Uuid::new_v4();
-        let request_guid = Uuid::new_v4();
-        let client_start_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .to_string();
-        // fixme: update uuid's on the retry
-        let request_id = request_id.to_string();
-        let request_guid = request_guid.to_string();
-
-        let mut get_params = vec![
-            ("clientStartTime", client_start_time.as_str()),
-            ("requestId", request_id.as_str()),
-            ("request_guid", request_guid.as_str()),
-        ];
-        get_params.extend_from_slice(extra_get_params);
-
-        let url = format!(
-            "https://{}.snowflakecomputing.com/{}",
-            &account_identifier, context.path
-        );
-        let url = Url::parse_with_params(&url, get_params)?;
-
         let mut headers = HeaderMap::new();
 
         headers.append(
             header::ACCEPT,
             HeaderValue::from_static(context.accept_mime),
         );
+
+        let base_url = format!(
+            "https://{}.snowflakecomputing.com/{}",
+            &account_identifier, context.path
+        );
         if let Some(auth) = auth {
             let mut auth_val = HeaderValue::from_str(auth)?;
             auth_val.set_sensitive(true);
             headers.append(header::AUTHORIZATION, auth_val);
         }
+        let resp = match url_override {
+            None => {
+                let request_id = Uuid::new_v4();
+                let request_guid = Uuid::new_v4();
+                let client_start_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    .to_string();
+                // fixme: update uuid's on the retry
+                let request_id = request_id.to_string();
+                let request_guid = request_guid.to_string();
 
-        // todo: persist client to use connection polling
-        let resp = self
-            .client
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
+                let mut get_params = vec![
+                    ("clientStartTime", client_start_time.as_str()),
+                    ("requestId", request_id.as_str()),
+                    ("request_guid", request_guid.as_str()),
+                ];
+                get_params.extend_from_slice(extra_get_params);
+                let url = Url::parse_with_params(&base_url, get_params)?;
+                self.client
+                    .post(url)
+                    .headers(headers)
+                    .json(&body)
+                    .send()
+                    .await?
+            }
+            Some(get_request_url) => {
+                let url = Url::parse(&base_url)?.join(get_request_url)?;
+                self.client
+                    .get(url)
+                    .headers(headers)
+                    .json(&body)
+                    .send()
+                    .await?
+            }
+        };
 
         Ok(resp.json::<R>().await?)
     }
