@@ -63,7 +63,6 @@ pub struct ExecErrorResponseData {
 pub struct AuthErrorResponseData {
     pub authn_method: Option<String>,
     pub error_code: Option<String>,
-
 }
 
 #[derive(Deserialize, Debug)]
