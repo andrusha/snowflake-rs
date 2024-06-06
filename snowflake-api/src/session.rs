@@ -109,14 +109,12 @@ enum AuthType {
     Certificate(String),
     Password(String),
     OAuth(String),
-    // Used for initialization only
-    None,
 }
 
 /// Requests, caches, and renews authentication tokens.
 /// Tokens are given as response to creating new session in Snowflake. Session persists
 /// the configuration state and temporary objects (tables, procedures, etc).
-// todo: split warehouse-database-schema and username-role-key into its own structs
+
 // todo: close session after object is dropped
 pub struct Session {
     connection: Arc<Connection>,
@@ -125,66 +123,122 @@ pub struct Session {
     auth_type: AuthType,
     account_identifier: String,
 
-    warehouse: Option<String>,
-    database: Option<String>,
-    schema: Option<String>,
+    username: String,
+    role: Option<String>,
 
+    object_details: SessionObjectDetails,
+}
+
+#[must_use]
+pub struct SessionBuilder {
+    account_identifier: String,
+    object_details: SessionObjectDetails,
     username: String,
     role: Option<String>,
 }
 
-// todo: make builder
-impl Session {
-    pub fn auth_builder(
-        connection: Arc<Connection>,
-        account_identifier: &str,
-        warehouse: Option<&str>,
-        database: Option<&str>,
-        schema: Option<&str>,
-        username: &str,
-        role: Option<&str>,
-    ) -> Self {
-        // uppercase everything as this is the convention
-        let account_identifier = account_identifier.to_uppercase();
-
-        let database = database.map(str::to_uppercase);
-        let schema = schema.map(str::to_uppercase);
-
+impl SessionBuilder {
+    pub fn new(account_identifier: &str, username: &str) -> Self {
         let username = username.to_uppercase();
-        let role = role.map(str::to_uppercase);
 
         Self {
-            connection,
-            auth_tokens: Mutex::new(None),
-            auth_type: AuthType::None,
-            account_identifier,
-            warehouse: warehouse.map(str::to_uppercase),
-            database,
+            account_identifier: account_identifier.to_string(),
+            object_details: SessionObjectDetails::default(),
             username,
-            role,
-            schema,
+            role: None,
         }
     }
 
-    /// Authenticate using private certificate and JWT
-    // fixme: add builder or introduce structs
-    #[allow(clippy::too_many_arguments)]
-    pub fn cert(mut self, private_key_pem: &str) -> Self {
-        self.auth_type = AuthType::Certificate(private_key_pem.to_string());
+    pub fn warehouse(mut self, warehouse: Option<&str>) -> Self {
+        self.object_details.warehouse = warehouse.map(str::to_string);
         self
     }
 
-    pub fn password(mut self, password: &str) -> Self {
-        self.auth_type = AuthType::Password(password.to_string());
+    pub fn database(mut self, database: Option<&str>) -> Self {
+        self.object_details.database = database.map(str::to_string);
         self
     }
 
-    /// Authenticate using oauth
-    // fixme: add builder or introduce structs
-    #[allow(clippy::too_many_arguments)]
-    pub fn oauth(mut self, oauth_access_token: &str) -> Self {
-        self.auth_type = AuthType::OAuth(oauth_access_token.to_string());
+    pub fn schema(mut self, schema: Option<&str>) -> Self {
+        self.object_details.schema = schema.map(str::to_string);
         self
+    }
+
+    pub fn role(mut self, role: Option<&str>) -> Self {
+        self.role = role.map(str::to_string);
+        self
+    }
+
+    pub fn build_oauth(&self, connection: Arc<Connection>, oauth_access_token: &str) -> Session {
+        Session::new(
+            connection,
+            &self.account_identifier,
+            AuthType::OAuth(oauth_access_token.to_string()),
+            self.object_details.clone(),
+            &self.username,
+            self.role.as_deref(),
+        )
+    }
+
+    pub fn build_password(&self, connection: Arc<Connection>, password: &str) -> Session {
+        Session::new(
+            connection,
+            &self.account_identifier,
+            AuthType::Password(password.to_string()),
+            self.object_details.clone(),
+            &self.username,
+            self.role.as_deref(),
+        )
+    }
+
+    pub fn build_cert(&self, connection: Arc<Connection>, private_key_pem: &str) -> Session {
+        Session::new(
+            connection,
+            &self.account_identifier,
+            AuthType::Certificate(private_key_pem.to_string()),
+            self.object_details.clone(),
+            &self.username,
+            self.role.as_deref(),
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SessionObjectDetails {
+    warehouse: Option<String>,
+    database: Option<String>,
+    schema: Option<String>,
+}
+
+impl Default for SessionObjectDetails {
+    fn default() -> Self {
+        Self {
+            warehouse: None,
+            database: None,
+            schema: None,
+        }
+    }
+}
+
+// todo: make builder
+impl Session {
+    fn new(
+        connection: Arc<Connection>,
+        account_identifier: &str,
+        auth_type: AuthType,
+        object_details: SessionObjectDetails,
+        username: &str,
+        role: Option<&str>,
+    ) -> Self {
+        Self {
+            connection,
+            auth_tokens: Mutex::new(None),
+            auth_type,
+            account_identifier: account_identifier.to_string(),
+            username: username.to_string(),
+            role: role.map(str::to_string),
+            object_details,
+        }
     }
 
     /// Get cached token or request a new one if old one has expired.
@@ -213,7 +267,6 @@ impl Session {
                     log::info!("Starting session with oauth authentication");
                     self.create(self.oauth_request_body(token)).await
                 }
-                AuthType::None => Err(AuthError::AuthTypeUnset)?,
             }?;
             *auth_tokens = Some(tokens);
         } else if auth_tokens
@@ -301,15 +354,15 @@ impl Session {
         body: LoginRequest<T>,
     ) -> Result<AuthTokens, AuthError> {
         let mut get_params = Vec::new();
-        if let Some(warehouse) = &self.warehouse {
+        if let Some(warehouse) = &self.object_details.warehouse {
             get_params.push(("warehouse", warehouse.as_str()));
         }
 
-        if let Some(database) = &self.database {
+        if let Some(database) = &self.object_details.database {
             get_params.push(("databaseName", database.as_str()));
         }
 
-        if let Some(schema) = &self.schema {
+        if let Some(schema) = &self.object_details.schema {
             get_params.push(("schemaName", schema.as_str()));
         }
 

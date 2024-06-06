@@ -28,7 +28,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 
 use responses::ExecResponse;
-use session::{AuthError, Session};
+use session::{AuthError, Session, SessionBuilder};
 
 use crate::connection::QueryType;
 use crate::connection::{Connection, ConnectionError};
@@ -260,20 +260,20 @@ impl SnowflakeApiBuilder {
             None => Arc::new(Connection::new()?),
         };
 
-        let session = Session::auth_builder(
-            Arc::clone(&connection),
-            &self.auth.account_identifier,
-            self.auth.warehouse.as_deref(),
-            self.auth.database.as_deref(),
-            self.auth.schema.as_deref(),
-            &self.auth.username,
-            self.auth.role.as_deref(),
-        );
+        let session = SessionBuilder::new(&self.auth.account_identifier, &self.auth.username)
+            .warehouse(self.auth.warehouse.as_deref())
+            .database(self.auth.database.as_deref())
+            .schema(self.auth.schema.as_deref())
+            .role(self.auth.role.as_deref());
 
         let session = match self.auth.auth_type {
-            AuthType::Password(args) => session.password(&args.password),
-            AuthType::Certificate(args) => session.cert(&args.private_key_pem),
-            AuthType::OAuth(args) => session.oauth(&args.token),
+            AuthType::Password(args) => {
+                session.build_password(Arc::clone(&connection), &args.password)
+            }
+            AuthType::Certificate(args) => {
+                session.build_cert(Arc::clone(&connection), &args.private_key_pem)
+            }
+            AuthType::OAuth(args) => session.build_oauth(Arc::clone(&connection), &args.token),
         };
 
         let account_identifier = self.auth.account_identifier.to_uppercase();
@@ -301,66 +301,6 @@ impl SnowflakeApi {
             session,
             account_identifier,
         }
-    }
-    /// Initialize object with password auth. Authentication happens on the first request.
-    pub fn with_password_auth(
-        account_identifier: &str,
-        warehouse: Option<&str>,
-        database: Option<&str>,
-        schema: Option<&str>,
-        username: &str,
-        role: Option<&str>,
-        password: &str,
-    ) -> Result<Self, SnowflakeApiError> {
-        let connection = Arc::new(Connection::new()?);
-        let session = Session::auth_builder(
-            Arc::clone(&connection),
-            account_identifier,
-            warehouse,
-            database,
-            schema,
-            username,
-            role,
-        )
-        .password(password);
-
-        let account_identifier = account_identifier.to_uppercase();
-        Ok(Self::new(
-            Arc::clone(&connection),
-            session,
-            account_identifier,
-        ))
-    }
-
-    /// Initialize object with private certificate auth. Authentication happens on the first request.
-    pub fn with_certificate_auth(
-        account_identifier: &str,
-        warehouse: Option<&str>,
-        database: Option<&str>,
-        schema: Option<&str>,
-        username: &str,
-        role: Option<&str>,
-        private_key_pem: &str,
-    ) -> Result<Self, SnowflakeApiError> {
-        let connection = Arc::new(Connection::new()?);
-
-        let session = Session::auth_builder(
-            Arc::clone(&connection),
-            account_identifier,
-            warehouse,
-            database,
-            schema,
-            username,
-            role,
-        )
-        .cert(private_key_pem);
-
-        let account_identifier = account_identifier.to_uppercase();
-        Ok(Self::new(
-            Arc::clone(&connection),
-            session,
-            account_identifier,
-        ))
     }
 
     pub fn from_env() -> Result<Self, SnowflakeApiError> {
