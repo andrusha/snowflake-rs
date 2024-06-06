@@ -11,8 +11,8 @@ use crate::connection::{Connection, QueryType};
 #[cfg(feature = "cert-auth")]
 use crate::requests::{CertLoginRequest, CertRequestData};
 use crate::requests::{
-    ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData,
-    RenewSessionRequest, SessionParameters,
+    ClientEnvironment, LoginRequest, LoginRequestCommon, OAuthLoginRequest, OAuthRequestData,
+    PasswordLoginRequest, PasswordRequestData, RenewSessionRequest, SessionParameters,
 };
 use crate::responses::AuthResponse;
 
@@ -50,6 +50,9 @@ pub enum AuthError {
 
     #[error("Enable the cert-auth feature to use certificate authentication")]
     CertAuthNotEnabled,
+
+    #[error("The authentication type has not been set yet on the connection!")]
+    AuthTypeUnset,
 }
 
 #[derive(Debug)]
@@ -103,8 +106,11 @@ impl AuthToken {
 }
 
 enum AuthType {
-    Certificate,
-    Password,
+    Certificate(String),
+    Password(String),
+    OAuth(String),
+    // Used for initialization only
+    None,
 }
 
 /// Requests, caches, and renews authentication tokens.
@@ -125,18 +131,11 @@ pub struct Session {
 
     username: String,
     role: Option<String>,
-    // This is not used with the certificate auth crate
-    #[allow(dead_code)]
-    private_key_pem: Option<String>,
-    password: Option<String>,
 }
 
 // todo: make builder
 impl Session {
-    /// Authenticate using private certificate and JWT
-    // fixme: add builder or introduce structs
-    #[allow(clippy::too_many_arguments)]
-    pub fn cert_auth(
+    pub fn auth_builder(
         connection: Arc<Connection>,
         account_identifier: &str,
         warehouse: Option<&str>,
@@ -144,7 +143,6 @@ impl Session {
         schema: Option<&str>,
         username: &str,
         role: Option<&str>,
-        private_key_pem: &str,
     ) -> Self {
         // uppercase everything as this is the convention
         let account_identifier = account_identifier.to_uppercase();
@@ -154,58 +152,39 @@ impl Session {
 
         let username = username.to_uppercase();
         let role = role.map(str::to_uppercase);
-        let private_key_pem = Some(private_key_pem.to_string());
 
         Self {
             connection,
             auth_tokens: Mutex::new(None),
-            auth_type: AuthType::Certificate,
-            private_key_pem,
+            auth_type: AuthType::None,
             account_identifier,
             warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
             schema,
-            password: None,
         }
     }
 
-    /// Authenticate using password
+    /// Authenticate using private certificate and JWT
     // fixme: add builder or introduce structs
     #[allow(clippy::too_many_arguments)]
-    pub fn password_auth(
-        connection: Arc<Connection>,
-        account_identifier: &str,
-        warehouse: Option<&str>,
-        database: Option<&str>,
-        schema: Option<&str>,
-        username: &str,
-        role: Option<&str>,
-        password: &str,
-    ) -> Self {
-        let account_identifier = account_identifier.to_uppercase();
+    pub fn cert(mut self, private_key_pem: &str) -> Self {
+        self.auth_type = AuthType::Certificate(private_key_pem.to_string());
+        self
+    }
 
-        let database = database.map(str::to_uppercase);
-        let schema = schema.map(str::to_uppercase);
+    pub fn password(mut self, password: &str) -> Self {
+        self.auth_type = AuthType::Password(password.to_string());
+        self
+    }
 
-        let username = username.to_uppercase();
-        let password = Some(password.to_string());
-        let role = role.map(str::to_uppercase);
-
-        Self {
-            connection,
-            auth_tokens: Mutex::new(None),
-            auth_type: AuthType::Password,
-            account_identifier,
-            warehouse: warehouse.map(str::to_uppercase),
-            database,
-            username,
-            role,
-            password,
-            schema,
-            private_key_pem: None,
-        }
+    /// Authenticate using oauth
+    // fixme: add builder or introduce structs
+    #[allow(clippy::too_many_arguments)]
+    pub fn oauth(mut self, oauth_access_token: &str) -> Self {
+        self.auth_type = AuthType::OAuth(oauth_access_token.to_string());
+        self
     }
 
     /// Get cached token or request a new one if old one has expired.
@@ -217,19 +196,21 @@ impl Session {
                 .is_some_and(|at| at.master_token.is_expired())
         {
             // Create new session if tokens are absent or can not be exchange
-            let tokens = match self.auth_type {
-                AuthType::Certificate => {
+            let tokens = match &self.auth_type {
+                AuthType::Certificate(pem) => {
                     log::info!("Starting session with certificate authentication");
                     if cfg!(feature = "cert-auth") {
-                        self.create(self.cert_request_body()?).await
+                        self.create(self.cert_request_body(pem)?).await
                     } else {
                         Err(AuthError::MissingCertificate)?
                     }
                 }
-                AuthType::Password => {
+                AuthType::Password(pwd) => {
                     log::info!("Starting session with password authentication");
-                    self.create(self.passwd_request_body()?).await
+                    self.create(self.passwd_request_body(pwd)).await
                 }
+                AuthType::OAuth(token) => self.create(self.oauth_request_body(token)).await,
+                AuthType::None => Err(AuthError::AuthTypeUnset)?,
             }?;
             *auth_tokens = Some(tokens);
         } else if auth_tokens
@@ -277,12 +258,9 @@ impl Session {
     }
 
     #[cfg(feature = "cert-auth")]
-    fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
+    fn cert_request_body(&self, private_key_pem: &str) -> Result<CertLoginRequest, AuthError> {
         let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
-        let private_key_pem = self
-            .private_key_pem
-            .as_ref()
-            .ok_or(AuthError::MissingCertificate)?;
+
         let jwt_token = generate_jwt_token(private_key_pem, &full_identifier)?;
 
         Ok(CertLoginRequest {
@@ -294,15 +272,23 @@ impl Session {
         })
     }
 
-    fn passwd_request_body(&self) -> Result<PasswordLoginRequest, AuthError> {
-        let password = self.password.as_ref().ok_or(AuthError::MissingPassword)?;
-
-        Ok(PasswordLoginRequest {
+    fn passwd_request_body(&self, password: &str) -> PasswordLoginRequest {
+        PasswordLoginRequest {
             data: PasswordRequestData {
                 login_request_common: self.login_request_common(),
                 password: password.to_string(),
             },
-        })
+        }
+    }
+
+    fn oauth_request_body(&self, oauth_access_token: &str) -> OAuthLoginRequest {
+        OAuthLoginRequest {
+            data: OAuthRequestData {
+                login_request_common: self.login_request_common(),
+                authenticator: "OAUTH".to_string(),
+                token: oauth_access_token.to_string(),
+            },
+        }
     }
 
     /// Start new session, all the Snowflake temporary objects will be scoped towards it,

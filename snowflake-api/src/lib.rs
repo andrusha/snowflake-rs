@@ -198,6 +198,8 @@ impl AuthArgs {
             Ok(AuthType::Password(PasswordArgs { password }))
         } else if let Ok(private_key_pem) = std::env::var("SNOWFLAKE_PRIVATE_KEY") {
             Ok(AuthType::Certificate(CertificateArgs { private_key_pem }))
+        } else if let Ok(token) = std::env::var("SNOWFLAKE_OAUTH_TOKEN") {
+            Ok(AuthType::OAuth(OAuthArgs { token }))
         } else {
             Err(MissingEnvArgument(
                 "SNOWFLAKE_PASSWORD or SNOWFLAKE_PRIVATE_KEY".to_owned(),
@@ -221,6 +223,7 @@ impl AuthArgs {
 pub enum AuthType {
     Password(PasswordArgs),
     Certificate(CertificateArgs),
+    OAuth(OAuthArgs),
 }
 
 pub struct PasswordArgs {
@@ -229,6 +232,10 @@ pub struct PasswordArgs {
 
 pub struct CertificateArgs {
     pub private_key_pem: String,
+}
+
+pub struct OAuthArgs {
+    pub token: String,
 }
 
 #[must_use]
@@ -253,27 +260,20 @@ impl SnowflakeApiBuilder {
             None => Arc::new(Connection::new()?),
         };
 
+        let session = Session::auth_builder(
+            Arc::clone(&connection),
+            &self.auth.account_identifier,
+            self.auth.warehouse.as_deref(),
+            self.auth.database.as_deref(),
+            self.auth.schema.as_deref(),
+            &self.auth.username,
+            self.auth.role.as_deref(),
+        );
+
         let session = match self.auth.auth_type {
-            AuthType::Password(args) => Session::password_auth(
-                Arc::clone(&connection),
-                &self.auth.account_identifier,
-                self.auth.warehouse.as_deref(),
-                self.auth.database.as_deref(),
-                self.auth.schema.as_deref(),
-                &self.auth.username,
-                self.auth.role.as_deref(),
-                &args.password,
-            ),
-            AuthType::Certificate(args) => Session::cert_auth(
-                Arc::clone(&connection),
-                &self.auth.account_identifier,
-                self.auth.warehouse.as_deref(),
-                self.auth.database.as_deref(),
-                self.auth.schema.as_deref(),
-                &self.auth.username,
-                self.auth.role.as_deref(),
-                &args.private_key_pem,
-            ),
+            AuthType::Password(args) => session.password(&args.password),
+            AuthType::Certificate(args) => session.cert(&args.private_key_pem),
+            AuthType::OAuth(args) => session.oauth(&args.token),
         };
 
         let account_identifier = self.auth.account_identifier.to_uppercase();
@@ -313,8 +313,7 @@ impl SnowflakeApi {
         password: &str,
     ) -> Result<Self, SnowflakeApiError> {
         let connection = Arc::new(Connection::new()?);
-
-        let session = Session::password_auth(
+        let session = Session::auth_builder(
             Arc::clone(&connection),
             account_identifier,
             warehouse,
@@ -322,8 +321,8 @@ impl SnowflakeApi {
             schema,
             username,
             role,
-            password,
-        );
+        )
+        .password(password);
 
         let account_identifier = account_identifier.to_uppercase();
         Ok(Self::new(
@@ -345,7 +344,7 @@ impl SnowflakeApi {
     ) -> Result<Self, SnowflakeApiError> {
         let connection = Arc::new(Connection::new()?);
 
-        let session = Session::cert_auth(
+        let session = Session::auth_builder(
             Arc::clone(&connection),
             account_identifier,
             warehouse,
@@ -353,8 +352,8 @@ impl SnowflakeApi {
             schema,
             username,
             role,
-            private_key_pem,
-        );
+        )
+        .cert(private_key_pem);
 
         let account_identifier = account_identifier.to_uppercase();
         Ok(Self::new(
