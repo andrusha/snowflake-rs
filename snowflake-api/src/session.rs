@@ -203,24 +203,13 @@ impl SessionBuilder {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 struct SessionObjectDetails {
     warehouse: Option<String>,
     database: Option<String>,
     schema: Option<String>,
 }
 
-impl Default for SessionObjectDetails {
-    fn default() -> Self {
-        Self {
-            warehouse: None,
-            database: None,
-            schema: None,
-        }
-    }
-}
-
-// todo: make builder
 impl Session {
     fn new(
         connection: Arc<Connection>,
