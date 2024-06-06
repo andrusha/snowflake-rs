@@ -209,7 +209,10 @@ impl Session {
                     log::info!("Starting session with password authentication");
                     self.create(self.passwd_request_body(pwd)).await
                 }
-                AuthType::OAuth(token) => self.create(self.oauth_request_body(token)).await,
+                AuthType::OAuth(token) => {
+                    log::info!("Starting session with oauth authentication");
+                    self.create(self.oauth_request_body(token)).await
+                }
                 AuthType::None => Err(AuthError::AuthTypeUnset)?,
             }?;
             *auth_tokens = Some(tokens);
