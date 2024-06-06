@@ -193,6 +193,26 @@ pub struct AuthArgs {
 }
 
 impl AuthArgs {
+    pub fn new(
+        account_identifier: &str,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+        auth_type: AuthType,
+    ) -> Self {
+        Self {
+            account_identifier: account_identifier.to_string(),
+            warehouse: warehouse.map(str::to_string),
+            database: database.map(str::to_string),
+            schema: schema.map(str::to_string),
+            username: username.to_string(),
+            role: role.map(str::to_string),
+            auth_type,
+        }
+    }
+
     pub fn from_env() -> Result<AuthArgs, SnowflakeApiError> {
         let auth_type = if let Ok(password) = std::env::var("SNOWFLAKE_PASSWORD") {
             Ok(AuthType::Password(PasswordArgs { password }))

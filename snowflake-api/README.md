@@ -44,21 +44,24 @@ snowflake-api = "0.7.0"
 
 Check [examples](./examples) for working programs using the library.
 
-
 ```rust
 use anyhow::Result;
-use snowflake_api::{QueryResult, SnowflakeApi};
+use snowflake_api::{QueryResult, AuthArgs, PasswordArgs, AuthType, SnowflakeApi, SnowflakeApiBuilder};
 
 async fn run_query(sql: &str) -> Result<QueryResult> {
-    let mut api = SnowflakeApi::with_password_auth(
+
+    let auth = AuthArgs::new(
         "ACCOUNT_IDENTIFIER",
         Some("WAREHOUSE"),
         Some("DATABASE"),
         Some("SCHEMA"),
         "USERNAME",
         Some("ROLE"),
-        "PASSWORD",
-    )?;
+        AuthType::Password(PasswordArgs { password: "password".to_string() })
+    );
+
+    let mut api: SnowflakeApi = SnowflakeApiBuilder::new(auth)
+    .build()?;
     let res = api.exec(sql).await?;
 
     Ok(res)
@@ -68,7 +71,7 @@ async fn run_query(sql: &str) -> Result<QueryResult> {
 Or using environment variables:
 
 ```rust
- use anyhow::Result;
+use anyhow::Result;
 use snowflake_api::{QueryResult, SnowflakeApi};
 
 async fn run_query(sql: &str) -> Result<QueryResult> {
