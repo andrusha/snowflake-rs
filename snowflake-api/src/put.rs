@@ -142,7 +142,7 @@ async fn put_file<T: ObjectStore>(
     let src_path = object_store::path::Path::parse(src_path)?;
     let fs = LocalFileSystem::new().get(&src_path).await?;
 
-    store.put(&dest_path, fs.bytes().await?).await?;
+    store.put(&dest_path, fs.bytes().await?.into()).await?;
 
     Ok::<(), SnowflakeApiError>(())
 }
