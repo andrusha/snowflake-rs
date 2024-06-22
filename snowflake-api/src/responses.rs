@@ -79,11 +79,8 @@ pub struct ExecErrorResponseData {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthErrorResponseData {
-    pub age: Option<i64>,
-    pub error_code: Option<String>,
-    pub internal_error: Option<bool>,
-    pub next_action: Option<String>,
     pub authn_method: Option<String>,
+    pub error_code: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -179,7 +176,7 @@ pub struct SyncQueryExecResponseData {
     // is base64-encoded Arrow IPC payload
     pub rowset_base64: Option<String>,
     pub total: i64,
-    pub returned: i64,            // unused in .NET
+    pub returned: i64,    // unused in .NET
     pub query_id: String, // unused in .NET
     pub database_provider: Option<String>,
     pub final_database_name: Option<String>, // unused in .NET
@@ -254,9 +251,8 @@ pub struct PutGetResponseData {
     // inconsistent case naming
     #[serde(rename = "src_locations", default)]
     pub src_locations: Vec<String>,
-    // todo: support upload parallelism
     // file upload parallelism
-    pub parallel: i32,
+    pub parallel: usize, // fixme: originally i32, handle this in parsing somehow?
     // file size threshold, small ones are should be uploaded with given parallelism
     pub threshold: i64,
     // doesn't need compression if source is already compressed
