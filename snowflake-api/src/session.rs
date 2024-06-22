@@ -398,6 +398,7 @@ impl Session {
                 &[],
                 Some(&auth),
                 body,
+                None,
             )
             .await?;
 
