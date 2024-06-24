@@ -237,13 +237,13 @@ impl Session {
             .is_some_and(|at| at.session_token.is_expired())
         {
             // Renew old session token
-            let tokens = self.renew().await?;
+            let old_token = auth_tokens.take().unwrap();
+            let tokens = self.renew(old_token).await?;
             *auth_tokens = Some(tokens);
         }
         auth_tokens.as_mut().unwrap().sequence_id += 1;
-        let session_token_auth_header = auth_tokens.as_ref().unwrap().session_token.auth_header();
         Ok(AuthParts {
-            session_token_auth_header,
+            session_token_auth_header: auth_tokens.as_ref().unwrap().session_token.auth_header(),
             sequence_id: auth_tokens.as_ref().unwrap().sequence_id,
         })
     }
@@ -390,25 +390,24 @@ impl Session {
         }
     }
 
-    async fn renew(&self) -> Result<AuthTokens, AuthError> {
-        if let Some(token) = self.auth_tokens.lock().await.take() {
-            log::debug!("Renewing the token");
-            let auth = token.master_token.auth_header();
-            let body = RenewSessionRequest {
-                old_session_token: token.session_token.token.clone(),
-                request_type: "RENEW".to_string(),
-            };
+    async fn renew(&self, token: AuthTokens) -> Result<AuthTokens, AuthError> {
+        log::debug!("Renewing the token");
+        let auth = token.master_token.auth_header();
+        let body = RenewSessionRequest {
+            old_session_token: token.session_token.token.clone(),
+            request_type: "RENEW".to_string(),
+        };
 
-            let resp = self
-                .connection
-                .request(
-                    QueryType::TokenRequest,
-                    &self.account_identifier,
-                    &[],
-                    Some(&auth),
-                    body,
-                )
-                .await?;
+        let resp = self
+            .connection
+            .request(
+                QueryType::TokenRequest,
+                &self.account_identifier,
+                &[],
+                Some(&auth),
+                body,
+            )
+            .await?;
 
             match resp {
                 AuthResponse::Renew(rs) => {
@@ -434,8 +433,11 @@ impl Session {
                 AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
                 _ => Err(AuthError::UnexpectedResponse(None)),
             }
-        } else {
-            Err(AuthError::OutOfOrderRenew)
+            AuthResponse::Error(e) => Err(AuthError::AuthFailed(
+                e.code.unwrap_or_default(),
+                e.message.unwrap_or_default(),
+            )),
+            _ => Err(AuthError::UnexpectedResponse),
         }
     }
 }
