@@ -35,7 +35,7 @@ pub enum AuthError {
     MissingCertificate,
 
     #[error("Unexpected API response")]
-    UnexpectedResponse,
+    UnexpectedResponse(Option<serde_json::Value>),
 
     // todo: add code mapping to meaningful message and/or refer to docs
     //   eg https://docs.snowflake.com/en/user-guide/key-pair-auth-troubleshooting
@@ -269,7 +269,12 @@ impl Session {
                     e.code.unwrap_or_default(),
                     e.message.unwrap_or_default(),
                 )),
-                _ => Err(AuthError::UnexpectedResponse),
+                AuthResponse::ExecError(e) => Err(AuthError::AuthFailed(
+                    e.code.unwrap_or_default(),
+                    e.message.unwrap_or_default(),
+                )),
+                AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
+                _ => Err(AuthError::UnexpectedResponse(None)),
             }
         } else {
             Ok(())
@@ -356,7 +361,12 @@ impl Session {
                 e.code.unwrap_or_default(),
                 e.message.unwrap_or_default(),
             )),
-            _ => Err(AuthError::UnexpectedResponse),
+            AuthResponse::ExecError(e) => Err(AuthError::AuthFailed(
+                e.code.unwrap_or_default(),
+                e.message.unwrap_or_default(),
+            )),
+            AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
+            _ => Err(AuthError::UnexpectedResponse(None)),
         }
     }
 
@@ -416,7 +426,12 @@ impl Session {
                 e.code.unwrap_or_default(),
                 e.message.unwrap_or_default(),
             )),
-            _ => Err(AuthError::UnexpectedResponse),
+            AuthResponse::ExecError(e) => Err(AuthError::AuthFailed(
+                e.code.unwrap_or_default(),
+                e.message.unwrap_or_default(),
+            )),
+            AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
+            _ => Err(AuthError::UnexpectedResponse(None)),
         }
     }
 }
