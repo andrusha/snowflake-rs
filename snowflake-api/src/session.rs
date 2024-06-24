@@ -409,35 +409,29 @@ impl Session {
             )
             .await?;
 
-            match resp {
-                AuthResponse::Renew(rs) => {
-                    let session_token =
-                        AuthToken::new(&rs.data.session_token, rs.data.validity_in_seconds_s_t);
-                    let master_token =
-                        AuthToken::new(&rs.data.master_token, rs.data.validity_in_seconds_m_t);
+        match resp {
+            AuthResponse::Renew(rs) => {
+                let session_token =
+                    AuthToken::new(&rs.data.session_token, rs.data.validity_in_seconds_s_t);
+                let master_token =
+                    AuthToken::new(&rs.data.master_token, rs.data.validity_in_seconds_m_t);
 
-                    Ok(AuthTokens {
-                        session_token,
-                        master_token,
-                        sequence_id: token.sequence_id,
-                    })
-                }
-                AuthResponse::Error(e) => Err(AuthError::AuthFailed(
-                    e.code.unwrap_or_default(),
-                    e.message.unwrap_or_default(),
-                )),
-                AuthResponse::ExecError(e) => Err(AuthError::AuthFailed(
-                    e.code.unwrap_or_default(),
-                    e.message.unwrap_or_default(),
-                )),
-                AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
-                _ => Err(AuthError::UnexpectedResponse(None)),
+                Ok(AuthTokens {
+                    session_token,
+                    master_token,
+                    sequence_id: token.sequence_id,
+                })
             }
             AuthResponse::Error(e) => Err(AuthError::AuthFailed(
                 e.code.unwrap_or_default(),
                 e.message.unwrap_or_default(),
             )),
-            _ => Err(AuthError::UnexpectedResponse),
+            AuthResponse::ExecError(e) => Err(AuthError::AuthFailed(
+                e.code.unwrap_or_default(),
+                e.message.unwrap_or_default(),
+            )),
+            AuthResponse::Other(value) => Err(AuthError::UnexpectedResponse(Some(value))),
+            _ => Err(AuthError::UnexpectedResponse(None)),
         }
     }
 }
