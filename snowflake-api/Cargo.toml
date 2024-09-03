@@ -19,7 +19,7 @@ default = ["cert-auth"]
 polars = ["dep:polars-core", "dep:polars-io"]
 
 [dependencies]
-arrow = "52"
+arrow = "53"
 async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
@@ -32,7 +32,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
 ] }
 reqwest-middleware = { version = "0.3", features = ["json"] }
-reqwest-retry = "0.5"
+reqwest-retry = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 snowflake-jwt = { version = "0.3", optional = true }
@@ -49,12 +49,12 @@ polars-io = { version = ">=0.32", features = [
 
 # put request support
 glob = { version = "0.3" }
-object_store = { version = "0.10", features = ["aws"] }
+object_store = { version = "0.11", features = ["aws"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = "1"
-arrow = { version = "52", features = ["prettyprint"] }
+arrow = { version = "53", features = ["prettyprint"] }
 clap = { version = "4", features = ["derive"] }
 pretty_env_logger = "0.5"
 tokio = { version = "1.35", features = ["macros", "rt-multi-thread"] }
