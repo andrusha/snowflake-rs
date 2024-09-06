@@ -1,6 +1,7 @@
 use anyhow::Result;
 use arrow::util::pretty::pretty_format_batches;
 use opentelemetry::global;
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
@@ -21,12 +22,13 @@ async fn main() -> Result<()> {
                 .with_endpoint("http://localhost:4317"),
         )
         .with_trace_config(
-            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+            sdktrace::Config::default().with_resource(Resource::new(vec![KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_NAME,
                 "snowflake-rust-client-demo",
             )])),
         )
-        .install_batch(runtime::Tokio)?;
+        .install_batch(runtime::Tokio)?
+        .tracer("snowflake");
 
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer.clone());
     let subscriber = tracing_subscriber::Registry::default().with(telemetry);

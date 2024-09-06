@@ -177,7 +177,7 @@ impl RawQueryResult {
     }
 
     fn bytes_to_batches(bytes: Bytes) -> Result<Vec<RecordBatch>, ArrowError> {
-        let record_batches = StreamReader::try_new_unbuffered(bytes.reader(), None)?;
+        let record_batches = StreamReader::try_new(bytes.reader(), None)?;
         record_batches.into_iter().collect()
     }
 }
