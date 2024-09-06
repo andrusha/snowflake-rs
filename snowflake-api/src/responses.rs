@@ -13,7 +13,8 @@ pub enum ExecResponse {
 }
 
 // todo: add close session response, which should be just empty?
-#[allow(clippy::large_enum_variant)]
+// FIXME: dead_code
+#[allow(clippy::large_enum_variant, dead_code)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum AuthResponse {
@@ -62,6 +63,8 @@ pub struct ExecErrorResponseData {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+// FIXME: dead_code
+#[allow(dead_code)]
 pub struct AuthErrorResponseData {
     pub authn_method: String,
 }
@@ -74,6 +77,8 @@ pub struct NameValueParameter {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+// FIXME
+#[allow(dead_code)]
 pub struct LoginResponseData {
     pub session_id: i64,
     pub token: String,
@@ -88,6 +93,8 @@ pub struct LoginResponseData {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+// FIXME: dead_code
+#[allow(dead_code)]
 pub struct SessionInfo {
     pub database_name: Option<String>,
     pub schema_name: Option<String>,
@@ -97,6 +104,8 @@ pub struct SessionInfo {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+// FIXME: dead_code
+#[allow(dead_code)]
 pub struct AuthenticatorResponseData {
     pub token_url: String,
     pub sso_url: String,
@@ -105,6 +114,8 @@ pub struct AuthenticatorResponseData {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+// FIXME: dead_code
+#[allow(dead_code)]
 pub struct RenewSessionResponseData {
     pub session_token: String,
     pub validity_in_seconds_s_t: i64,
