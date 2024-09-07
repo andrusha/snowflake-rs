@@ -14,7 +14,7 @@ clippy::missing_panics_doc
 )]
 
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::io::{self, Cursor};
 use std::sync::Arc;
 
 use arrow::error::ArrowError;
@@ -25,6 +25,7 @@ use bytes::{Buf, Bytes};
 use futures::future::try_join_all;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
+use serde_json::{Deserializer, Value};
 use thiserror::Error;
 
 use responses::ExecResponse;
@@ -33,9 +34,7 @@ use session::{AuthError, Session};
 use crate::connection::QueryType;
 use crate::connection::{Connection, ConnectionError};
 use crate::requests::{EmptyRequest, ExecRequest};
-use crate::responses::{
-    AwsPutGetStageInfo, ExecResponseRowType, PutGetExecResponse, PutGetStageInfo, SnowflakeType,
-};
+use crate::responses::{ExecResponseRowType, SnowflakeType};
 use crate::session::AuthError::MissingEnvArgument;
 
 pub mod connection;
@@ -105,6 +104,7 @@ pub enum SnowflakeApiError {
 
 /// Even if Arrow is specified as a return type non-select queries
 /// will return Json array of arrays: `[[42, "answer"], [43, "non-answer"]]`.
+#[derive(Debug)]
 pub struct JsonResult {
     // todo: can it _only_ be a json array of arrays or something else too?
     pub value: serde_json::Value,
@@ -119,6 +119,7 @@ impl Display for JsonResult {
 }
 
 /// Based on the [`ExecResponseRowType`]
+#[derive(Debug)]
 pub struct FieldSchema {
     pub name: String,
     // todo: is it a good idea to expose internal response struct to the user?
@@ -143,6 +144,7 @@ impl From<ExecResponseRowType> for FieldSchema {
 /// Container for query result.
 /// Arrow is returned by-default for all SELECT statements,
 /// unless there is session configuration issue or it's a different statement type.
+#[derive(Debug)]
 pub enum QueryResult {
     Arrow(Vec<RecordBatch>),
     Json(JsonResult),
@@ -476,9 +478,32 @@ impl SnowflakeApi {
             Ok(RawQueryResult::Empty)
         } else if let Some(value) = sync_data.rowset {
             log::debug!("Got JSON response");
+            let mut values: Vec<Value> = serde_json::from_value(value).unwrap();
+            for chunk in sync_data.chunks.iter() {
+                let bytes = self
+                    .connection
+                    .get_chunk(&chunk.url, &sync_data.chunk_headers)
+                    .await?;
+                // let mut values: Vec<Value> = Vec::new();
+                let cursor = Cursor::new(&bytes);
+
+                // Deserialize the bytes as a stream of individual JSON arrays
+                let stream = Deserializer::from_reader(cursor).into_iter::<Value>();
+
+                for value in stream {
+                    match value {
+                        Ok(json_value) => values.push(json_value),
+                        Err(e) => {
+                            eprintln!("Error deserializing chunk: {}", e);
+                            break; // Handle or skip over errors as needed
+                        }
+                    }
+                }
+            }
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
             // information being passed through that fields.
+            let value = serde_json::to_value(values).unwrap();
             Ok(RawQueryResult::Json(JsonResult {
                 value,
                 schema: sync_data
