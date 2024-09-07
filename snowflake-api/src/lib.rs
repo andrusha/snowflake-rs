@@ -484,21 +484,19 @@ impl SnowflakeApi {
                     .connection
                     .get_chunk(&chunk.url, &sync_data.chunk_headers)
                     .await?;
-                // let mut values: Vec<Value> = Vec::new();
-                let cursor = Cursor::new(&bytes);
+                // Add a '[' at the beginning and ']' at the end of the byte stream
+                let mut bytes_with_brackets = Vec::new();
+                bytes_with_brackets.push(b'['); // Add opening bracket
+                bytes_with_brackets.extend_from_slice(&bytes); // Add the original bytes
+                bytes_with_brackets.push(b']'); // Add closing bracket
 
-                // Deserialize the bytes as a stream of individual JSON arrays
-                let stream = Deserializer::from_reader(cursor).into_iter::<Value>();
+                // Replace the invalid ',' between arrays with the valid array separator ", "
+                let json_str = String::from_utf8_lossy(&bytes_with_brackets);
+                let json_str = json_str.replace("], [", "],[");
 
-                for value in stream {
-                    match value {
-                        Ok(json_value) => values.push(json_value),
-                        Err(e) => {
-                            eprintln!("Error deserializing chunk: {}", e);
-                            break; // Handle or skip over errors as needed
-                        }
-                    }
-                }
+                // Now deserialize as a `Vec<Value>` since the entire data is now a valid JSON array
+                let chunk_values: Vec<Value> = serde_json::from_str(&json_str).unwrap();
+                values.extend(chunk_values);
             }
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
