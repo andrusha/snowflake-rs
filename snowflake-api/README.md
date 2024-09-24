@@ -18,7 +18,7 @@ Since it does a lot of I/O the library is async-only, and currently has hard dep
 - [x] PUT support [example](./examples/filetransfer.rs)
 - [ ] GET support
 - [x] AWS integration
-- [ ] GCloud integration
+- [ ] `GCloud` integration
 - [ ] Azure integration
 - [x] Parallel uploading of small files
 - [x] Glob support for PUT (eg `*.csv`)
