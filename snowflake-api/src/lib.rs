@@ -179,9 +179,9 @@ impl RawQueryResult {
                     .collect::<Vec<Result<RecordBatch, ArrowError>>>()
                     .await;
 
-                return Ok(QueryResult::Arrow(
+                Ok(QueryResult::Arrow(
                     arrow_records.into_iter().map(Result::unwrap).collect(),
-                ));
+                ))
             }
             RawQueryResult::Json(j) => Ok(QueryResult::Json(j)),
             RawQueryResult::Empty => Ok(QueryResult::Empty),
@@ -201,12 +201,11 @@ impl RawQueryResult {
         let batch_stream = bytes_stream.flat_map(|bytes_result| match bytes_result {
             Ok(bytes) => match Self::bytes_to_batches(bytes) {
                 Ok(batches) => futures::stream::iter(batches.into_iter().map(Ok)).boxed(),
-                Err(e) => futures::stream::once(async move { Err(ArrowError::from(e)) }).boxed(),
+                Err(e) => futures::stream::once(async move { Err(e) }).boxed(),
             },
             Err(e) => futures::stream::once(async move {
                 Err(ArrowError::ParseError(format!(
-                    "Unable to parse RecordBatch due to error in bytes stream: {}",
-                    e.to_string()
+                    "Unable to parse RecordBatch due to error in bytes stream: {e}"
                 )))
             })
             .boxed(),
@@ -486,7 +485,7 @@ impl SnowflakeApi {
         sql: &str,
         enable_streaming: bool,
     ) -> Result<RawQueryResult, SnowflakeApiError> {
-        let mut resp = self
+        let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
         log::debug!("Got query response: {:?}", resp);
@@ -571,7 +570,7 @@ impl SnowflakeApi {
 
         Ok(resp)
     }
- 
+
     fn chunks_to_bytes_stream(&self, data: &QueryExecResponseData) -> RawQueryResult {
         let chunk_urls = data
             .chunks
