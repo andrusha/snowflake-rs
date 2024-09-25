@@ -31,7 +31,7 @@ pub enum ConnectionError {
 struct QueryContext {
     path: String,
     accept_mime: &'static str,
-    method: reqwest::Method
+    method: reqwest::Method,
 }
 
 pub enum QueryType {
@@ -175,20 +175,16 @@ impl Connection {
 
         // todo: persist client to use connection polling
         let resp = match context.method {
-            reqwest::Method::POST => self
-                .client
-                .post(url)
-                .headers(headers)
-                .json(&body)
-                .send()
-                .await?,
-            reqwest::Method::GET => self
-                .client
-                .get(url)
-                .headers(headers)
-                .send()
-                .await?,
-            _ => panic!("Unsupported method"),     
+            reqwest::Method::POST => {
+                self.client
+                    .post(url)
+                    .headers(headers)
+                    .json(&body)
+                    .send()
+                    .await?
+            }
+            reqwest::Method::GET => self.client.get(url).headers(headers).send().await?,
+            _ => panic!("Unsupported method"),
         };
         Ok(resp.json::<R>().await?)
     }

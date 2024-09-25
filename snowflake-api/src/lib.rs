@@ -406,8 +406,9 @@ impl SnowflakeApi {
         log::debug!("Got PUT response: {:?}", resp);
 
         match resp {
-            ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::QueryAsync(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::Query(_) | ExecResponse::QueryAsync(_) => {
+                Err(SnowflakeApiError::UnexpectedResponse)
+            }
             ExecResponse::PutGet(pg) => put::put(pg).await,
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
@@ -438,15 +439,18 @@ impl SnowflakeApi {
 
         if let ExecResponse::QueryAsync(data) = &resp {
             log::debug!("Got async exec response");
-            resp = self.get_async_exec_result(&data.data.get_result_url).await?;
+            resp = self
+                .get_async_exec_result(&data.data.get_result_url)
+                .await?;
             log::debug!("Got result for async exec: {:?}", resp);
         }
 
         let resp = match resp {
             // processable response
             ExecResponse::Query(qr) => Ok(qr),
-            ExecResponse::QueryAsync(_) => Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::PutGet(_) => Err(SnowflakeApiError::UnexpectedResponse),
+            ExecResponse::PutGet(_) | ExecResponse::QueryAsync(_) => {
+                Err(SnowflakeApiError::UnexpectedResponse)
+            }
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
                 e.data.error_code,
                 e.message.unwrap_or_default(),
@@ -519,7 +523,10 @@ impl SnowflakeApi {
         Ok(resp)
     }
 
-    pub async fn get_async_exec_result(&self, query_result_url: &String) -> Result<ExecResponse, SnowflakeApiError>{
+    pub async fn get_async_exec_result(
+        &self,
+        query_result_url: &String,
+    ) -> Result<ExecResponse, SnowflakeApiError> {
         log::debug!("Getting async exec result: {}", query_result_url);
 
         let mut delay = 1; // Initial delay of 1 second
@@ -527,15 +534,15 @@ impl SnowflakeApi {
         loop {
             let parts = self.session.get_token().await?;
             let resp = self
-            .connection
-            .request::<ExecResponse>(
-                QueryType::ArrowQueryResult(query_result_url.to_string()),
-                &self.account_identifier,
-                &[],
-                Some(&parts.session_token_auth_header),
-                serde_json::Value::default()
-            )
-            .await?;
+                .connection
+                .request::<ExecResponse>(
+                    QueryType::ArrowQueryResult(query_result_url.to_string()),
+                    &self.account_identifier,
+                    &[],
+                    Some(&parts.session_token_auth_header),
+                    serde_json::Value::default(),
+                )
+                .await?;
 
             if let ExecResponse::QueryAsync(_) = &resp {
                 // simple exponential retry with a maximum wait time of 5 seconds
@@ -544,6 +551,6 @@ impl SnowflakeApi {
             } else {
                 return Ok(resp);
             }
-        };
+        }
     }
 }
