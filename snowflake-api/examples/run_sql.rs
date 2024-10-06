@@ -5,7 +5,9 @@ use arrow::util::pretty::pretty_format_batches;
 use clap::Parser;
 use std::fs;
 
-use snowflake_api::{QueryResult, SnowflakeApi};
+use snowflake_api::{
+    AuthArgs, CertificateArgs, PasswordArgs, QueryResult, SnowflakeApi, SnowflakeApiBuilder,
+};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum Output {
@@ -67,25 +69,31 @@ async fn main() -> Result<()> {
     let mut api = match (&args.private_key, &args.password) {
         (Some(pkey), None) => {
             let pem = fs::read_to_string(pkey)?;
-            SnowflakeApi::with_certificate_auth(
-                &args.account_identifier,
-                args.warehouse.as_deref(),
-                args.database.as_deref(),
-                args.schema.as_deref(),
-                &args.username,
-                args.role.as_deref(),
-                &pem,
-            )?
+            SnowflakeApiBuilder::new(AuthArgs {
+                account_identifier: args.account_identifier,
+                warehouse: args.warehouse,
+                database: args.database,
+                schema: args.schema,
+                username: args.username,
+                role: args.role,
+                auth_type: snowflake_api::AuthType::Certificate(CertificateArgs {
+                    private_key_pem: pem,
+                }),
+            })
+            .build()?
         }
-        (None, Some(pwd)) => SnowflakeApi::with_password_auth(
-            &args.account_identifier,
-            args.warehouse.as_deref(),
-            args.database.as_deref(),
-            args.schema.as_deref(),
-            &args.username,
-            args.role.as_deref(),
-            pwd,
-        )?,
+        (None, Some(pwd)) => SnowflakeApiBuilder::new(AuthArgs {
+            account_identifier: args.account_identifier,
+            warehouse: args.warehouse,
+            database: args.database,
+            schema: args.schema,
+            username: args.username,
+            role: args.role,
+            auth_type: snowflake_api::AuthType::Password(PasswordArgs {
+                password: pwd.to_string(),
+            }),
+        })
+        .build()?,
         _ => {
             panic!("Either private key path or password must be set")
         }

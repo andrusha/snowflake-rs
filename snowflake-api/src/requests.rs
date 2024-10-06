@@ -15,6 +15,7 @@ pub struct LoginRequest<T> {
 }
 
 pub type PasswordLoginRequest = LoginRequest<PasswordRequestData>;
+pub type OAuthLoginRequest = LoginRequest<OAuthRequestData>;
 #[cfg(feature = "cert-auth")]
 pub type CertLoginRequest = LoginRequest<CertRequestData>;
 
@@ -56,6 +57,15 @@ pub struct PasswordRequestData {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct CertRequestData {
+    #[serde(flatten)]
+    pub login_request_common: LoginRequestCommon,
+    pub authenticator: String,
+    pub token: String,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub struct OAuthRequestData {
     #[serde(flatten)]
     pub login_request_common: LoginRequestCommon,
     pub authenticator: String,
