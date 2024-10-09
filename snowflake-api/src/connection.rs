@@ -8,6 +8,10 @@ use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
+use std::io::Read;
+use flate2::bufread::GzDecoder;
+use bytes;
+
 #[derive(Error, Debug)]
 pub enum ConnectionError {
     #[error(transparent)]
@@ -183,7 +187,7 @@ impl Connection {
         for (k, v) in headers {
             header_map.insert(
                 HeaderName::from_bytes(k.as_bytes()).unwrap(),
-                HeaderValue::from_bytes(v.as_bytes()).unwrap(),
+            HeaderValue::from_bytes(v.as_bytes())?,
             );
         }
         let bytes = self
@@ -193,7 +197,22 @@ impl Connection {
             .send()
             .await?
             .bytes()
-            .await?;
-        Ok(bytes)
+            .await;
+
+        match bytes {
+            Ok(bytes) => {
+                // convert from gzip to Bytes
+                let mut gz = GzDecoder::new(&bytes[..]);
+                let mut decoded_bytes = Vec::new();
+                gz.read_to_end(&mut decoded_bytes).expect("Failed to decode bytes");
+                let decoded = bytes::Bytes::copy_from_slice(&decoded_bytes);                
+                
+                Ok(decoded)
+            }
+            Err(e) => {
+                Err(ConnectionError::RequestError(e))
+            }
+        }
+        
     }
 }
