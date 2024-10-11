@@ -51,6 +51,7 @@ polars-io = { version = ">=0.32", features = [
 glob = { version = "0.3" }
 object_store = { version = "0.11", features = ["aws"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+flate2 = "1.0.34"
 
 [dev-dependencies]
 anyhow = "1"
