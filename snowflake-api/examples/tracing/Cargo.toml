@@ -5,17 +5,17 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1"
-arrow = { version = "53", features = ["prettyprint"] }
+arrow = { version = "54", features = ["prettyprint"] }
 dotenv = "0.15"
 snowflake-api = { path = "../../../snowflake-api" }
 
-opentelemetry = "0.24"
-opentelemetry-otlp = "0.17"
-opentelemetry-semantic-conventions = "0.16"
-opentelemetry_sdk = { version = "0.24", features = ["rt-tokio"] }
-reqwest-middleware = "0.3"
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
+opentelemetry-semantic-conventions = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+reqwest-middleware = "0.4"
 reqwest-tracing = { version = "0.5", features = ["opentelemetry_0_21"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
-tracing-opentelemetry = "0.25"
+tracing-opentelemetry = "0.28"
 tracing-subscriber = "0.3"
