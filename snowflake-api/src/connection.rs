@@ -82,6 +82,10 @@ impl Connection {
         Ok(Self::new_with_middware(client.build()))
     }
 
+    pub fn account_url_base(account_identifier: &str) -> String {
+        format!("https://{}.snowflakecomputing.com/", &account_identifier)
+    }
+
     /// Allow a user to provide their own middleware
     ///
     /// Users can provide their own middleware to the connection like this:
@@ -119,7 +123,7 @@ impl Connection {
     pub async fn request<R: serde::de::DeserializeOwned>(
         &self,
         query_type: QueryType,
-        account_identifier: &str,
+        url_pattern: &str,
         extra_get_params: &[(&str, &str)],
         auth: Option<&str>,
         body: impl serde::Serialize,
@@ -144,10 +148,7 @@ impl Connection {
         ];
         get_params.extend_from_slice(extra_get_params);
 
-        let url = format!(
-            "https://{}.snowflakecomputing.com/{}",
-            &account_identifier, context.path
-        );
+        let url = format!("{}{}", url_pattern, context.path);
         let url = Url::parse_with_params(&url, get_params)?;
 
         let mut headers = HeaderMap::new();

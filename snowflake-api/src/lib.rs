@@ -256,7 +256,7 @@ impl SnowflakeApiBuilder {
         let session = match self.auth.auth_type {
             AuthType::Password(args) => Session::password_auth(
                 Arc::clone(&connection),
-                &self.auth.account_identifier,
+                self.auth.account_identifier.to_uppercase().as_str(),
                 self.auth.warehouse.as_deref(),
                 self.auth.database.as_deref(),
                 self.auth.schema.as_deref(),
@@ -266,7 +266,7 @@ impl SnowflakeApiBuilder {
             ),
             AuthType::Certificate(args) => Session::cert_auth(
                 Arc::clone(&connection),
-                &self.auth.account_identifier,
+                self.auth.account_identifier.to_uppercase().as_str(),
                 self.auth.warehouse.as_deref(),
                 self.auth.database.as_deref(),
                 self.auth.schema.as_deref(),
@@ -276,13 +276,7 @@ impl SnowflakeApiBuilder {
             ),
         };
 
-        let account_identifier = self.auth.account_identifier.to_uppercase();
-
-        Ok(SnowflakeApi::new(
-            Arc::clone(&connection),
-            session,
-            account_identifier,
-        ))
+        Ok(SnowflakeApi::new(Arc::clone(&connection), session))
     }
 }
 
@@ -290,16 +284,14 @@ impl SnowflakeApiBuilder {
 pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
-    account_identifier: String,
 }
 
 impl SnowflakeApi {
     /// Create a new `SnowflakeApi` object with an existing connection and session.
-    pub fn new(connection: Arc<Connection>, session: Session, account_identifier: String) -> Self {
+    pub fn new(connection: Arc<Connection>, session: Session) -> Self {
         Self {
             connection,
             session,
-            account_identifier,
         }
     }
     /// Initialize object with password auth. Authentication happens on the first request.
@@ -316,7 +308,7 @@ impl SnowflakeApi {
 
         let session = Session::password_auth(
             Arc::clone(&connection),
-            account_identifier,
+            account_identifier.to_uppercase().as_str(),
             warehouse,
             database,
             schema,
@@ -325,12 +317,7 @@ impl SnowflakeApi {
             password,
         );
 
-        let account_identifier = account_identifier.to_uppercase();
-        Ok(Self::new(
-            Arc::clone(&connection),
-            session,
-            account_identifier,
-        ))
+        Ok(Self::new(Arc::clone(&connection), session))
     }
 
     /// Initialize object with private certificate auth. Authentication happens on the first request.
@@ -347,7 +334,7 @@ impl SnowflakeApi {
 
         let session = Session::cert_auth(
             Arc::clone(&connection),
-            account_identifier,
+            account_identifier.to_uppercase().as_str(),
             warehouse,
             database,
             schema,
@@ -356,12 +343,48 @@ impl SnowflakeApi {
             private_key_pem,
         );
 
-        let account_identifier = account_identifier.to_uppercase();
-        Ok(Self::new(
+        Ok(Self::new(Arc::clone(&connection), session))
+    }
+
+    /// Initialize object with directly provided oauth token. Authentication happens on the first request.
+    pub fn with_oauth_auth(
+        account_identifier: &str,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+        token: &str,
+    ) -> Result<Self, SnowflakeApiError> {
+        let connection = Arc::new(Connection::new()?);
+
+        let session = Session::oauth_auth(
             Arc::clone(&connection),
-            session,
-            account_identifier,
-        ))
+            account_identifier.to_uppercase().as_str(),
+            warehouse,
+            database,
+            schema,
+            username,
+            role,
+            token,
+        );
+
+        Ok(Self::new(Arc::clone(&connection), session))
+    }
+
+    /// Initialize object with spcs file provided oauth. Authentication happens on the first request.
+    pub fn with_spcs_oauth_auth(
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<Self, SnowflakeApiError> {
+        let connection = Arc::new(Connection::new()?);
+
+        let session =
+            Session::spcs_oauth_auth(Arc::clone(&connection), warehouse, database, schema, role)?;
+
+        Ok(Self::new(Arc::clone(&connection), session))
     }
 
     pub fn from_env() -> Result<Self, SnowflakeApiError> {
@@ -501,7 +524,7 @@ impl SnowflakeApi {
             .connection
             .request::<R>(
                 query_type,
-                &self.account_identifier,
+                &self.session.base_url,
                 &[],
                 Some(&parts.session_token_auth_header),
                 body,

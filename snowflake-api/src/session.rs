@@ -1,3 +1,5 @@
+use std::env;
+use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,8 +13,8 @@ use crate::connection::{Connection, QueryType};
 #[cfg(feature = "cert-auth")]
 use crate::requests::{CertLoginRequest, CertRequestData};
 use crate::requests::{
-    ClientEnvironment, LoginRequest, LoginRequestCommon, PasswordLoginRequest, PasswordRequestData,
-    RenewSessionRequest, SessionParameters,
+    ClientEnvironment, LoginRequest, LoginRequestCommon, OAuthLoginRequest, OAuthRequestData,
+    PasswordLoginRequest, PasswordRequestData, RenewSessionRequest, SessionParameters,
 };
 use crate::responses::AuthResponse;
 
@@ -30,6 +32,21 @@ pub enum AuthError {
 
     #[error("Password auth was requested, but password wasn't provided")]
     MissingPassword,
+
+    #[error("OAuth token auth was requested, but token wasn't provided")]
+    MissingOAuthToken,
+
+    #[error("SPCS OAuth was requested, but token couldn't be found")]
+    MissingSPCSOAuthToken,
+
+    #[error("SPCS OAuth was requested, but the account name couldn't be found")]
+    MissingSPCSAccountName,
+
+    #[error("SPCS OAuth was requested, but the host name couldn't be found")]
+    MissingSPCSHost,
+
+    #[error("Account identifier is missing")]
+    MissingAccountIdentifier,
 
     #[error("Certificate auth was requested, but certificate wasn't provided")]
     MissingCertificate,
@@ -105,6 +122,8 @@ impl AuthToken {
 enum AuthType {
     Certificate,
     Password,
+    OAuth,
+    SPCSOAuth,
 }
 
 /// Requests, caches, and renews authentication tokens.
@@ -117,6 +136,7 @@ pub struct Session {
 
     auth_tokens: Mutex<Option<AuthTokens>>,
     auth_type: AuthType,
+    pub base_url: String,
     account_identifier: String,
 
     warehouse: Option<String>,
@@ -129,6 +149,7 @@ pub struct Session {
     #[allow(dead_code)]
     private_key_pem: Option<String>,
     password: Option<String>,
+    oauth_token: Option<String>,
 }
 
 // todo: make builder
@@ -155,6 +176,7 @@ impl Session {
         let username = username.to_uppercase();
         let role = role.map(str::to_uppercase);
         let private_key_pem = Some(private_key_pem.to_string());
+        let base_url = Connection::account_url_base(&account_identifier);
 
         Self {
             connection,
@@ -162,12 +184,14 @@ impl Session {
             auth_type: AuthType::Certificate,
             private_key_pem,
             account_identifier,
+            base_url,
             warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
             schema,
             password: None,
+            oauth_token: None,
         }
     }
 
@@ -192,20 +216,101 @@ impl Session {
         let username = username.to_uppercase();
         let password = Some(password.to_string());
         let role = role.map(str::to_uppercase);
+        let base_url = Connection::account_url_base(&account_identifier);
 
         Self {
             connection,
             auth_tokens: Mutex::new(None),
             auth_type: AuthType::Password,
             account_identifier,
+            base_url,
             warehouse: warehouse.map(str::to_uppercase),
             database,
             username,
             role,
             password,
             schema,
+            oauth_token: None,
             private_key_pem: None,
         }
+    }
+
+    /// Authenticate using OAuth token and account identifier
+    // fixme: add builder or introduce structs
+    #[allow(clippy::too_many_arguments)]
+    pub fn oauth_auth(
+        connection: Arc<Connection>,
+        account_identifier: &str,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+        oauth_token: &str,
+    ) -> Self {
+        let account_identifier = account_identifier.to_uppercase();
+
+        let database = database.map(str::to_uppercase);
+        let schema = schema.map(str::to_uppercase);
+
+        let username = username.to_uppercase();
+        let oauth_token = Some(oauth_token.to_string());
+        let role = role.map(str::to_uppercase);
+        let base_url = Connection::account_url_base(&account_identifier);
+
+        Self {
+            connection,
+            auth_tokens: Mutex::new(None),
+            auth_type: AuthType::OAuth,
+            account_identifier,
+            base_url,
+            warehouse: warehouse.map(str::to_uppercase),
+            database,
+            username,
+            role,
+            oauth_token,
+            schema,
+            password: None,
+            private_key_pem: None,
+        }
+    }
+
+    /// Authenticate using OAuth token and spcs url
+    // fixme: Get the token
+    // fixme:
+    #[allow(clippy::too_many_arguments)]
+    pub fn spcs_oauth_auth(
+        connection: Arc<Connection>,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<Self, AuthError> {
+        let database = database.map(str::to_uppercase);
+        let schema = schema.map(str::to_uppercase);
+
+        let role = role.map(str::to_uppercase);
+
+        let account_identifier =
+            env::var("SNOWFLAKE_ACCOUNT").map_err(|_| AuthError::MissingSPCSAccountName)?;
+        let account_host = env::var("SNOWFLAKE_HOST").map_err(|_| AuthError::MissingSPCSHost)?;
+        let base_url = format!("https://{}/", account_host);
+
+        Ok(Self {
+            connection,
+            auth_tokens: Mutex::new(None),
+            auth_type: AuthType::SPCSOAuth,
+            account_identifier,
+            base_url,
+            warehouse: warehouse.map(str::to_uppercase),
+            database,
+            username: "".to_string(),
+            role,
+            oauth_token: None,
+            schema,
+            password: None,
+            private_key_pem: None,
+        })
     }
 
     /// Get cached token or request a new one if old one has expired.
@@ -221,14 +326,43 @@ impl Session {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
                     if cfg!(feature = "cert-auth") {
-                        self.create(self.cert_request_body()?).await
+                        self.create(
+                            &self.warehouse,
+                            &self.database,
+                            &self.schema,
+                            &self.role,
+                            self.cert_request_body()?,
+                        )
+                        .await
                     } else {
                         Err(AuthError::MissingCertificate)?
                     }
                 }
                 AuthType::Password => {
                     log::info!("Starting session with password authentication");
-                    self.create(self.passwd_request_body()?).await
+                    self.create(
+                        &self.warehouse,
+                        &self.database,
+                        &self.schema,
+                        &self.role,
+                        self.passwd_request_body()?,
+                    )
+                    .await
+                }
+                AuthType::OAuth => {
+                    log::info!("Starting session with oauth authentication");
+                    self.create(
+                        &self.warehouse,
+                        &self.database,
+                        &self.schema,
+                        &self.role,
+                        self.oauth_request_body()?,
+                    )
+                    .await
+                }
+                AuthType::SPCSOAuth => {
+                    log::info!("Starting session with spcs oauth authentication");
+                    self.spcs_create().await
                 }
             }?;
             *auth_tokens = Some(tokens);
@@ -256,7 +390,7 @@ impl Session {
                 .connection
                 .request::<AuthResponse>(
                     QueryType::CloseSession,
-                    &self.account_identifier,
+                    &self.base_url,
                     &[("delete", "true")],
                     Some(&tokens.session_token.auth_header()),
                     serde_json::Value::default(),
@@ -278,7 +412,8 @@ impl Session {
 
     #[cfg(feature = "cert-auth")]
     fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
-        let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
+        let username = self.username.clone();
+        let full_identifier = format!("{}.{}", self.account_identifier, username);
         let private_key_pem = self
             .private_key_pem
             .as_ref()
@@ -305,26 +440,77 @@ impl Session {
         })
     }
 
+    fn oauth_request_body(&self) -> Result<OAuthLoginRequest, AuthError> {
+        let oauth_token = self
+            .oauth_token
+            .as_ref()
+            .ok_or(AuthError::MissingOAuthToken)?;
+
+        Ok(OAuthLoginRequest {
+            data: OAuthRequestData {
+                login_request_common: self.login_request_common(),
+                token: oauth_token.clone(),
+                authenticator: "OAUTH".to_string(),
+            },
+        })
+    }
+
+    async fn spcs_create(&self) -> Result<AuthTokens, AuthError> {
+        // We should wait until we are ready to send the request
+        // before we read the token, as it expires after 10 minutes
+        let token = fs::read_to_string("/snowflake/session/token")
+            .map_err(|_| AuthError::MissingSPCSOAuthToken)?;
+
+        // fixme: I am not sure if waiting until now to read all of these
+        //        is necessary or not, but I figured I would allow the user
+        //        to override these on instantiation and only replace the
+        //        user provided ones with the env provides ones if necessary
+        let warehouse = self
+            .warehouse
+            .clone()
+            .or(env::var("SNOWFLAKE_WAREHOUSE").ok());
+        let database = self
+            .database
+            .clone()
+            .or(env::var("SNOWFLAKE_DATABASE").ok());
+        let schema = self.schema.clone().or(env::var("SNOWFLAKE_SCHEMA").ok());
+        let role = self.role.clone().or(env::var("SNOWFLAKE_ROLE").ok());
+
+        let body = OAuthLoginRequest {
+            data: OAuthRequestData {
+                login_request_common: self.login_request_common(),
+                token,
+                authenticator: "OAUTH".to_string(),
+            },
+        };
+        self.create(&warehouse, &database, &schema, &role, body)
+            .await
+    }
+
     /// Start new session, all the Snowflake temporary objects will be scoped towards it,
     /// as well as temporary configuration parameters
-    async fn create<T: serde::ser::Serialize>(
+    async fn create<T: serde::ser::Serialize + std::fmt::Debug>(
         &self,
+        warehouse: &Option<String>,
+        database: &Option<String>,
+        schema: &Option<String>,
+        role: &Option<String>,
         body: LoginRequest<T>,
     ) -> Result<AuthTokens, AuthError> {
         let mut get_params = Vec::new();
-        if let Some(warehouse) = &self.warehouse {
+        if let Some(warehouse) = &warehouse {
             get_params.push(("warehouse", warehouse.as_str()));
         }
 
-        if let Some(database) = &self.database {
+        if let Some(database) = &database {
             get_params.push(("databaseName", database.as_str()));
         }
 
-        if let Some(schema) = &self.schema {
+        if let Some(schema) = &schema {
             get_params.push(("schemaName", schema.as_str()));
         }
 
-        if let Some(role) = &self.role {
+        if let Some(role) = &role {
             get_params.push(("roleName", role.as_str()));
         }
 
@@ -332,13 +518,12 @@ impl Session {
             .connection
             .request::<AuthResponse>(
                 QueryType::LoginRequest,
-                &self.account_identifier,
+                &self.base_url,
                 &get_params,
                 None,
                 body,
             )
             .await?;
-        log::debug!("Auth response: {:?}", resp);
 
         match resp {
             AuthResponse::Login(lr) => {
@@ -367,6 +552,7 @@ impl Session {
             svn_revision: String::new(),
             account_name: self.account_identifier.clone(),
             login_name: self.username.clone(),
+            base_url: self.base_url.clone(),
             session_parameters: SessionParameters {
                 client_validate_default_parameters: true,
             },
@@ -392,7 +578,7 @@ impl Session {
             .connection
             .request(
                 QueryType::TokenRequest,
-                &self.account_identifier,
+                &self.base_url,
                 &[],
                 Some(&auth),
                 body,
