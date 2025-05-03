@@ -1,2 +1,6 @@
 /target
 /Cargo.lock
+/.idea/.gitignore
+/.idea/modules.xml
+/.idea/snowflake-rs.iml
+/.idea/vcs.xml
