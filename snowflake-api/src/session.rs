@@ -131,6 +131,20 @@ pub struct Session {
     password: Option<String>,
 }
 
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("account_identifier", &self.account_identifier)
+            .field("warehouse", &self.warehouse)
+            .field("database", &self.database)
+            .field("schema", &self.schema)
+            .field("username", &self.username)
+            .field("role", &self.role)
+            .field("private_key_pem", &self.private_key_pem)
+            .finish()
+    }
+}
+
 // todo: make builder
 impl Session {
     /// Authenticate using private certificate and JWT

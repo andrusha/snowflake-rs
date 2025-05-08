@@ -79,6 +79,12 @@ pub struct Connection {
     client: ClientWithMiddleware,
 }
 
+impl std::fmt::Debug for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Connection").finish()
+    }   
+}
+
 impl Connection {
     pub fn new() -> Result<Self, ConnectionError> {
         let client = Self::default_client_builder()?;
@@ -130,8 +136,8 @@ impl Connection {
     ) -> Result<R, ConnectionError> {
         let context = query_type.query_context();
 
-        let request_id = Uuid::new_v4();
-        let request_guid = Uuid::new_v4();
+        let request_id = Uuid::now_v7();
+        let request_guid = Uuid::now_v7();
         let client_start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

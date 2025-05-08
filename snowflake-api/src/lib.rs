@@ -16,7 +16,7 @@ clippy::missing_panics_doc
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::sync::Arc;
-
+use arrow::datatypes::SchemaRef;
 use arrow::error::ArrowError;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
@@ -41,7 +41,7 @@ pub mod connection;
 mod polars;
 mod put;
 mod requests;
-mod responses;
+pub mod responses;
 mod session;
 
 #[derive(Error, Debug)]
@@ -56,7 +56,7 @@ pub enum SnowflakeApiError {
     ResponseDeserializationError(#[from] base64::DecodeError),
 
     #[error(transparent)]
-    ArrowError(#[from] arrow::error::ArrowError),
+    ArrowError(#[from] ArrowError),
 
     #[error("S3 bucket path in PUT request is invalid: `{0}`")]
     InvalidBucketPath(String),
@@ -138,32 +138,66 @@ impl From<ExecResponseRowType> for FieldSchema {
 /// Container for query result.
 /// Arrow is returned by-default for all SELECT statements,
 /// unless there is session configuration issue or it's a different statement type.
-pub enum QueryResult {
-    Arrow(Vec<RecordBatch>),
-    Json(JsonResult),
-    Empty,
+pub enum QueryResult<M: serde::ser::Serialize> {
+    Arrow {
+        batches: Vec<RecordBatch>,
+        schema: SchemaRef,
+        meta: M,
+    },
+    Json {
+        data: JsonResult,
+        meta: M,
+    },
+    Empty {
+        meta: M,
+    },
 }
 
 /// Raw query result
 /// Can be transformed into [`QueryResult`]
-pub enum RawQueryResult {
+pub enum RawQueryResult<M: serde::ser::Serialize> {
     /// Arrow IPC chunks
     /// see: <https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc>
-    Bytes(Vec<Bytes>),
+    Bytes {
+        data: Vec<Bytes>,
+        meta: M,
+    },
     /// Json payload is deserialized,
     /// as it's already a part of REST response
-    Json(JsonResult),
-    Empty,
+    Json {
+        data: JsonResult,
+        meta: M,
+    },
+    Empty {
+        meta: M,
+    },
 }
 
-impl RawQueryResult {
-    pub fn deserialize_arrow(self) -> Result<QueryResult, ArrowError> {
+impl<M: serde::ser::Serialize> RawQueryResult<M> {
+    pub fn deserialize_arrow(self) -> Result<QueryResult<M>, ArrowError> {
         match self {
-            RawQueryResult::Bytes(bytes) => {
-                Self::flat_bytes_to_batches(bytes).map(QueryResult::Arrow)
+            RawQueryResult::Bytes { data, meta } => {
+                let batches = Self::flat_bytes_to_batches(data)?;
+                let schema = batches[0].schema();
+                Ok(
+                    QueryResult::Arrow {
+                        batches,
+                        schema,
+                        meta,
+                    }
+                )
             }
-            RawQueryResult::Json(j) => Ok(QueryResult::Json(j)),
-            RawQueryResult::Empty => Ok(QueryResult::Empty),
+            RawQueryResult::Json { data, meta } => Ok(
+                QueryResult::Json {
+                    data,
+                    meta
+                }
+            ),
+            RawQueryResult::Empty { meta } => Ok(
+                QueryResult::Empty {
+                    meta
+                }
+            ),
         }
     }
 
@@ -182,6 +216,7 @@ impl RawQueryResult {
     }
 }
 
+#[derive(Debug)]
 pub struct AuthArgs {
     pub account_identifier: String,
     pub warehouse: Option<String>,
@@ -218,6 +253,7 @@ impl AuthArgs {
     }
 }
 
+#[derive(Debug)]
 pub enum AuthType {
     Password(PasswordArgs),
     Certificate(CertificateArgs),
@@ -227,8 +263,24 @@ pub struct PasswordArgs {
     pub password: String,
 }
 
+impl std::fmt::Debug for PasswordArgs {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PasswordArgs")
+            .field("password", &"******")
+            .finish()
+    }
+}
+
 pub struct CertificateArgs {
     pub private_key_pem: String,
+}
+
+impl std::fmt::Debug for CertificateArgs {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CertificateArgs")
+            .field("private_key_pem", &"******")
+            .finish()
+    }
 }
 
 #[must_use]
@@ -286,7 +338,8 @@ impl SnowflakeApiBuilder {
     }
 }
 
-/// Snowflake API, keeps connection pool and manages session for you
+/// Snowflake API keeps a connection pool and manages session for you
+#[derive(Debug)]
 pub struct SnowflakeApi {
     connection: Arc<Connection>,
     session: Session,
@@ -378,7 +431,7 @@ impl SnowflakeApi {
 
     /// Execute a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
-    pub async fn exec(&self, sql: &str) -> Result<QueryResult, SnowflakeApiError> {
+    pub async fn exec(&self, sql: &str) -> Result<QueryResult<ExecResponse>, SnowflakeApiError> {
         let raw = self.exec_raw(sql).await?;
         let res = raw.deserialize_arrow()?;
         Ok(res)
@@ -387,94 +440,103 @@ impl SnowflakeApi {
     /// Executes a single query against API.
     /// If statement is PUT, then file will be uploaded to the Snowflake-managed storage
     /// Returns raw bytes in the Arrow response
-    pub async fn exec_raw(&self, sql: &str) -> Result<RawQueryResult, SnowflakeApiError> {
+    pub async fn exec_raw(&self, sql: &str) -> Result<RawQueryResult<ExecResponse>, SnowflakeApiError> {
         let put_re = Regex::new(r"(?i)^(?:/\*.*\*/\s*)*put\s+").unwrap();
 
         // put commands go through a different flow and result is side-effect
         if put_re.is_match(sql) {
             log::info!("Detected PUT query");
-            self.exec_put(sql).await.map(|()| RawQueryResult::Empty)
+            self.exec_put(sql).await.map(|meta| RawQueryResult::Empty { meta })
         } else {
             self.exec_arrow_raw(sql).await
         }
     }
 
-    async fn exec_put(&self, sql: &str) -> Result<(), SnowflakeApiError> {
+    async fn exec_put(&self, sql: &str) -> Result<ExecResponse, SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::JsonQuery)
             .await?;
         log::trace!("Got PUT response: {:?}", resp);
 
-        match resp {
+
+        match &resp {
             ExecResponse::Query(_) => Err(SnowflakeApiError::UnexpectedResponse),
-            ExecResponse::PutGet(pg) => put::put(pg).await,
+            ExecResponse::PutGet(pg) => {
+                put::put(pg.clone()).await?;
+                Ok(resp)
+            },
             ExecResponse::Error(e) => Err(SnowflakeApiError::ApiError(
-                e.data.error_code,
-                e.message.unwrap_or_default(),
+                e.data.error_code.clone(),
+                e.message.clone().unwrap_or_default(),
             )),
         }
     }
 
     /// Useful for debugging to get the straight query response
     #[cfg(debug_assertions)]
-    pub async fn exec_response(&mut self, sql: &str) -> Result<ExecResponse, SnowflakeApiError> {
+    pub async fn exec_response(&self, sql: &str) -> Result<ExecResponse, SnowflakeApiError> {
         self.run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await
     }
 
     /// Useful for debugging to get raw JSON response
     #[cfg(debug_assertions)]
-    pub async fn exec_json(&mut self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
+    pub async fn exec_json(&self, sql: &str) -> Result<serde_json::Value, SnowflakeApiError> {
         self.run_sql::<serde_json::Value>(sql, QueryType::JsonQuery)
             .await
     }
 
-    async fn exec_arrow_raw(&self, sql: &str) -> Result<RawQueryResult, SnowflakeApiError> {
+    async fn exec_arrow_raw(&self, sql: &str) -> Result<RawQueryResult<ExecResponse>, SnowflakeApiError> {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
         
         log::trace!("Got query response: {:?}", resp);
 
-        let resp = match resp {
+        let (ref q_resp, ref _meta) = match resp {
             // processable response
-            ExecResponse::Query(qr) => {
+            ExecResponse::Query(ref qr) => {
                 log::info!("Got a response: OK");
-                Ok(qr)
+                Ok((qr, resp.clone_as_meta()))
             },
             ExecResponse::PutGet(_) => {
                 log::info!("Got a response: Unexpected PUT response");
                 Err(SnowflakeApiError::UnexpectedResponse)
             },
-            ExecResponse::Error(e) =>
+            ExecResponse::Error(ref e) =>
                 {
                     log::error!("Got a response: Error - {:?}", e);
                     Err(SnowflakeApiError::ApiError(
-                        e.data.error_code,
-                        e.message.unwrap_or_default(),
+                        e.data.error_code.clone(),
+                        e.message.clone().unwrap_or_default(),
                     ))
                 },
         }?;
 
         // if response was empty, base64 data is empty string
         // todo: still return empty arrow batch with proper schema? (schema always included)
-        if resp.data.returned == 0 {
+        if q_resp.data.returned == 0 {
             log::debug!("Got response with 0 rows");
-            Ok(RawQueryResult::Empty)
-        } else if let Some(value) = resp.data.rowset {
+            Ok(RawQueryResult::Empty {
+                meta: resp.clone_as_meta()
+            })
+        } else if let Some(ref value) = q_resp.data.rowset {
             log::debug!("Got JSON response");
             // NOTE: json response could be chunked too. however, go clients should receive arrow by-default,
             // unless user sets session variable to return json. This case was added for debugging and status
             // information being passed through that fields.
-            Ok(RawQueryResult::Json(JsonResult {
-                value,
-                schema: resp.data.rowtype.into_iter().map(Into::into).collect(),
-            }))
-        } else if let Some(base64) = resp.data.rowset_base64 {
+            Ok(RawQueryResult::Json {
+                data: JsonResult {
+                    value: value.clone(),
+                    schema: q_resp.data.rowtype.iter().map(|r|r.clone().into()).collect(),
+                },
+                meta: resp.clone_as_meta()
+            })
+        } else if let Some(ref base64) = q_resp.data.rowset_base64 {
             // fixme: is it possible to give streaming interface?
-            let mut chunks = try_join_all(resp.data.chunks.iter().map(|chunk| {
+            let mut chunks = try_join_all(q_resp.data.chunks.iter().map(|chunk| {
                 self.connection
-                    .get_chunk(&chunk.url, &resp.data.chunk_headers)
+                    .get_chunk(&chunk.url, &q_resp.data.chunk_headers)
             }))
             .await?;
 
@@ -486,7 +548,10 @@ impl SnowflakeApi {
                 chunks.push(bytes);
             }
 
-            Ok(RawQueryResult::Bytes(chunks))
+            Ok(RawQueryResult::Bytes {
+                data: chunks,
+                meta: resp.clone_as_meta()
+            })
         } else {
             Err(SnowflakeApiError::BrokenResponse)
         }

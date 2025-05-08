@@ -11,6 +11,23 @@ pub enum ExecResponse {
     Error(ExecErrorResponse),
 }
 
+impl ExecResponse {
+    pub fn clone_as_meta(&self) -> Self {
+        match self {
+            ExecResponse::Query(q) => {
+                ExecResponse::Query(QueryExecResponse {
+                    code: q.code.clone(),
+                    message: q.message.clone(),
+                    success: q.success,
+                    data: q.data.clone_as_meta(),
+                })
+            },
+            ExecResponse::PutGet(g) => ExecResponse::PutGet(g.clone()),
+            ExecResponse::Error(e) => ExecResponse::Error(e.clone()),
+        }
+    }
+}
+
 // todo: add close session response, which should be just empty?
 // FIXME: dead_code
 #[allow(clippy::large_enum_variant, dead_code)]
@@ -24,7 +41,7 @@ pub enum AuthResponse {
     Error(AuthErrorResponse),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BaseRestResponse<D> {
     // null for auth
     pub code: Option<String>,
@@ -43,7 +60,7 @@ pub type RenewSessionResponse = BaseRestResponse<RenewSessionResponseData>;
 // Data should be always `null` on successful close session response
 pub type CloseSessionResponse = BaseRestResponse<Option<()>>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecErrorResponseData {
     pub age: i64,
@@ -68,7 +85,7 @@ pub struct AuthErrorResponseData {
     pub error_code: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NameValueParameter {
     pub name: String,
     pub value: serde_json::Value,
@@ -130,10 +147,12 @@ pub struct QueryExecResponseData {
     pub rowtype: Vec<ExecResponseRowType>,
     // default for non-SELECT queries
     // GET / PUT has their own response format
+    #[serde(skip_serializing)]
     pub rowset: Option<serde_json::Value>,
     // only exists when binary response is given, eg Arrow
     // default for all SELECT queries
     // is base64-encoded Arrow IPC payload
+    #[serde(skip_serializing)]
     pub rowset_base64: Option<String>,
     pub total: i64,
     pub returned: i64,    // unused in .NET
@@ -149,7 +168,9 @@ pub struct QueryExecResponseData {
     pub statement_type_id: i64,
     pub version: i64,
     // if response is chunked
-    #[serde(default)] // soft-default to empty Vec if not present
+    #[serde(default)]
+    #[serde(skip_serializing)]
+    // soft-default to empty Vec if not present
     pub chunks: Vec<ExecResponseChunk>,
     // x-amz-server-side-encryption-customer-key, when chunks are present for download
     pub qrmk: Option<String>,
@@ -163,7 +184,40 @@ pub struct QueryExecResponseData {
     // `sendResultTime`, `queryResultFormat`, `queryContext` also exist
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl QueryExecResponseData {
+    /// A helper function to make a metadata version that doesn't include underlying data
+    /// 
+    /// This is used as the `meta` field on [super::QueryResult] and [super::RawQueryResult]
+    pub fn clone_as_meta(&self) -> Self {
+        Self {
+            parameters: self.parameters.clone(),
+            rowtype: self.rowtype.clone(),
+            // skip actual data
+            rowset: None,
+            // skip actual data
+            rowset_base64: None,
+            total: self.total,
+            returned: self.returned,
+            query_id: self.query_id.clone(),
+            database_provider: self.database_provider.clone(),
+            final_database_name: self.final_database_name.clone(),
+            final_schema_name: self.final_schema_name.clone(),
+            final_warehouse_name: self.final_warehouse_name.clone(),
+            final_role_name: self.final_role_name.clone(),
+            number_of_binds: self.number_of_binds.clone(),
+            statement_type_id: self.statement_type_id,
+            version: self.version,
+            // these are just links, so we'll keep them
+            chunks: self.chunks.clone(),
+            qrmk: self.qrmk.clone(),
+            chunk_headers: self.chunk_headers.clone(),
+            get_result_url: self.get_result_url.clone(),
+            result_ids: self.result_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecResponseRowType {
     pub name: String,
     #[serde(rename = "byteLength")]
@@ -178,7 +232,7 @@ pub struct ExecResponseRowType {
 }
 
 // fixme: is it good idea to keep this as an enum if more types could be added in future?
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SnowflakeType {
     Fixed,
@@ -196,7 +250,7 @@ pub enum SnowflakeType {
     Array,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecResponseChunk {
     pub url: String,
@@ -204,7 +258,7 @@ pub struct ExecResponseChunk {
     pub uncompressed_size: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutGetResponseData {
     // `kind`, `operation` are present in Go implementation, but not in .NET
@@ -233,14 +287,14 @@ pub struct PutGetResponseData {
     pub statement_type_id: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CommandType {
     Upload,
     Download,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PutGetStageInfo {
     Aws(AwsPutGetStageInfo),
@@ -248,7 +302,7 @@ pub enum PutGetStageInfo {
     Gcs(GcsPutGetStageInfo),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AwsPutGetStageInfo {
     pub location_type: String,
@@ -259,7 +313,7 @@ pub struct AwsPutGetStageInfo {
     pub end_point: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct AwsCredentials {
     pub aws_key_id: String,
@@ -269,7 +323,7 @@ pub struct AwsCredentials {
     pub aws_key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GcsPutGetStageInfo {
     pub location_type: String,
@@ -279,13 +333,13 @@ pub struct GcsPutGetStageInfo {
     pub presigned_url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct GcsCredentials {
     pub gcs_access_token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AzurePutGetStageInfo {
     pub location_type: String,
@@ -294,20 +348,20 @@ pub struct AzurePutGetStageInfo {
     pub creds: AzureCredentials,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct AzureCredentials {
     pub azure_sas_token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum EncryptionMaterialVariant {
     Single(PutGetEncryptionMaterial),
     Multiple(Vec<PutGetEncryptionMaterial>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutGetEncryptionMaterial {
     // base64 encoded
