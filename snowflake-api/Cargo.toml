@@ -39,8 +39,8 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 # polars-support
-polars-core = { workspace = true, optional = true }
-polars-io = {workspace = true, optional = true }
+polars-core = { optional = true, version = "0.46.0" }
+polars-io = { optional = true, version = ">=0.32", features = ["json", "ipc_streaming"] }
 
 # put request support
 glob = { workspace = true }
