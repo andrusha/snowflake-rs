@@ -43,7 +43,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 
 # polars-support
-polars-core = { version = ">=0.32", optional = true }
+polars-core = { version = ">=0.32", optional = true, features = ["dtype-decimal"] }
 polars-io = { version = ">=0.32", features = [
     "json",
     "ipc_streaming",

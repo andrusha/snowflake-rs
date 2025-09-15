@@ -13,11 +13,14 @@ clippy::future_not_send, // This one seems like something we should eventually f
 clippy::missing_panics_doc
 )]
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use arrow::array::{Array, ArrayRef, Decimal128Array, Int32Array, Int64Array};
+use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use arrow::error::ArrowError;
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
@@ -152,6 +155,8 @@ pub enum RawQueryResult {
     /// Arrow IPC chunks
     /// see: <https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc>
     Bytes(Vec<Bytes>),
+    /// Arrow IPC chunks with Snowflake schema metadata for decimal conversion
+    BytesWithSchema(Vec<Bytes>, Vec<FieldSchema>),
     Stream(
         Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + std::marker::Send>>,
     ),
@@ -166,6 +171,9 @@ impl RawQueryResult {
         match self {
             RawQueryResult::Bytes(bytes) => {
                 Self::flat_bytes_to_batches(bytes).map(QueryResult::Arrow)
+            }
+            RawQueryResult::BytesWithSchema(bytes, schema) => {
+                Self::flat_bytes_to_batches_with_schema(bytes, schema).map(QueryResult::Arrow)
             }
             RawQueryResult::Stream(_) => unimplemented!(),
             RawQueryResult::Json(j) => Ok(QueryResult::Json(j)),
@@ -182,9 +190,111 @@ impl RawQueryResult {
         Ok(res)
     }
 
+    pub fn flat_bytes_to_batches_with_schema(
+        bytes: Vec<Bytes>,
+        schema: Vec<FieldSchema>,
+    ) -> Result<Vec<RecordBatch>, ArrowError> {
+        let mut res = vec![];
+        for b in bytes {
+            let batches = Self::bytes_to_batches(b)?;
+            for batch in batches {
+                let converted_batch = Self::convert_decimal_columns(batch, &schema)?;
+                res.push(converted_batch);
+            }
+        }
+        Ok(res)
+    }
+
     fn bytes_to_batches(bytes: Bytes) -> Result<Vec<RecordBatch>, ArrowError> {
         let record_batches = StreamReader::try_new(bytes.reader(), None)?;
         record_batches.into_iter().collect()
+    }
+
+    /// Convert integer columns to decimal columns based on Snowflake schema metadata
+    fn convert_decimal_columns(
+        batch: RecordBatch,
+        schema: &[FieldSchema],
+    ) -> Result<RecordBatch, ArrowError> {
+        let original_schema = batch.schema();
+        let mut new_fields: Vec<Arc<Field>> = Vec::new();
+        let mut new_columns = Vec::new();
+
+        // Create a mapping of field names to their Snowflake schema info
+        let schema_map: HashMap<&String, &FieldSchema> =
+            schema.iter().map(|field| (&field.name, field)).collect();
+
+        for (i, field) in original_schema.fields().iter().enumerate() {
+            let column = batch.column(i);
+
+            if let Some(snowflake_field) = schema_map.get(field.name()) {
+                if matches!(snowflake_field.type_, SnowflakeType::Fixed) {
+                    if let (Some(precision), Some(scale)) =
+                        (snowflake_field.precision, snowflake_field.scale)
+                    {
+                        // Convert integer column to decimal
+                        let decimal_column =
+                            Self::convert_integer_to_decimal(column, precision as u8, scale as i8)?;
+                        let decimal_field = Arc::new(Field::new(
+                            field.name(),
+                            DataType::Decimal128(precision as u8, scale as i8),
+                            field.is_nullable(),
+                        ));
+                        new_fields.push(decimal_field);
+                        new_columns.push(decimal_column);
+                        continue;
+                    }
+                }
+            }
+
+            // Keep the original column if no conversion needed
+            new_fields.push(Arc::clone(field));
+            new_columns.push(Arc::clone(column));
+        }
+
+        let new_schema = Arc::new(ArrowSchema::new(new_fields));
+        RecordBatch::try_new(new_schema, new_columns)
+    }
+
+    /// Convert an integer array to a decimal array with the given precision and scale
+    fn convert_integer_to_decimal(
+        array: &ArrayRef,
+        precision: u8,
+        scale: i8,
+    ) -> Result<ArrayRef, ArrowError> {
+        match array.data_type() {
+            DataType::Int32 => {
+                let int_array = array.as_any().downcast_ref::<Int32Array>().ok_or_else(|| {
+                    ArrowError::CastError("Failed to downcast to Int32Array".to_string())
+                })?;
+
+                let decimal_values: Result<Vec<Option<i128>>, ArrowError> = int_array
+                    .iter()
+                    .map(|opt_val| opt_val.map(|val| val as i128).map(Ok).transpose())
+                    .collect();
+
+                let decimal_array = Decimal128Array::from(decimal_values?)
+                    .with_precision_and_scale(precision, scale)?;
+                Ok(Arc::new(decimal_array))
+            }
+            DataType::Int64 => {
+                let int_array = array.as_any().downcast_ref::<Int64Array>().ok_or_else(|| {
+                    ArrowError::CastError("Failed to downcast to Int64Array".to_string())
+                })?;
+
+                let decimal_values: Result<Vec<Option<i128>>, ArrowError> = int_array
+                    .iter()
+                    .map(|opt_val| opt_val.map(|val| val as i128).map(Ok).transpose())
+                    .collect();
+
+                let decimal_array = Decimal128Array::from(decimal_values?)
+                    .with_precision_and_scale(precision, scale)?;
+                Ok(Arc::new(decimal_array))
+            }
+            _ => {
+                // For non-integer types, try to keep the original array
+                Ok(Arc::clone(array))
+            }
+        }
     }
 }
 
@@ -522,7 +632,9 @@ impl SnowflakeApi {
                 chunks.push(bytes);
             }
 
-            Ok(RawQueryResult::Bytes(chunks))
+            // Include schema information for decimal conversion
+            let schema: Vec<FieldSchema> = resp.data.rowtype.into_iter().map(Into::into).collect();
+            Ok(RawQueryResult::BytesWithSchema(chunks, schema))
         } else {
             Err(SnowflakeApiError::BrokenResponse)
         }
@@ -589,5 +701,249 @@ impl SnowflakeApi {
             .await?;
 
         Ok(resp.bytes_stream())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::{Int32Array, Int64Array};
+    use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+    use arrow::ipc::writer::StreamWriter;
+    use arrow::record_batch::RecordBatch;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_convert_int32_to_decimal() {
+        let int_array = Int32Array::from(vec![Some(12345), Some(67890), None, Some(-9876)]);
+        let array_ref: ArrayRef = Arc::new(int_array);
+
+        let result = RawQueryResult::convert_integer_to_decimal(&array_ref, 10, 2).unwrap();
+        assert_eq!(result.data_type(), &DataType::Decimal128(10, 2));
+
+        let decimal_array = result.as_any().downcast_ref::<Decimal128Array>().unwrap();
+        assert_eq!(decimal_array.len(), 4);
+        assert_eq!(decimal_array.value(0), 12345);
+        assert_eq!(decimal_array.value(1), 67890);
+        assert!(decimal_array.is_null(2));
+        assert_eq!(decimal_array.value(3), -9876);
+        assert_eq!(decimal_array.precision(), 10);
+        assert_eq!(decimal_array.scale(), 2);
+    }
+
+    #[test]
+    fn test_convert_int64_to_decimal() {
+        let int_array = Int64Array::from(vec![Some(1234567890), Some(-987654321), None]);
+        let array_ref: ArrayRef = Arc::new(int_array);
+
+        let result = RawQueryResult::convert_integer_to_decimal(&array_ref, 15, 4).unwrap();
+        assert_eq!(result.data_type(), &DataType::Decimal128(15, 4));
+
+        let decimal_array = result.as_any().downcast_ref::<Decimal128Array>().unwrap();
+        assert_eq!(decimal_array.len(), 3);
+        assert_eq!(decimal_array.value(0), 1234567890);
+        assert_eq!(decimal_array.value(1), -987654321);
+        assert!(decimal_array.is_null(2));
+        assert_eq!(decimal_array.precision(), 15);
+        assert_eq!(decimal_array.scale(), 4);
+    }
+
+    #[test]
+    fn test_convert_decimal_columns() {
+        let int32_array = Int32Array::from(vec![Some(12345), Some(67890)]);
+        let int64_array = Int64Array::from(vec![Some(1000), Some(2000)]);
+        let text_array = arrow::array::StringArray::from(vec![Some("test1"), Some("test2")]);
+        let schema = ArrowSchema::new(vec![
+            Field::new("price", DataType::Int32, true),
+            Field::new("quantity", DataType::Int64, true),
+            Field::new("description", DataType::Utf8, true),
+        ]);
+
+        let batch = RecordBatch::try_new(
+            Arc::new(schema),
+            vec![
+                Arc::new(int32_array),
+                Arc::new(int64_array),
+                Arc::new(text_array),
+            ],
+        )
+        .unwrap();
+
+        let snowflake_schema = vec![
+            FieldSchema {
+                name: "price".to_string(),
+                type_: SnowflakeType::Fixed,
+                precision: Some(10),
+                scale: Some(2),
+                nullable: true,
+            },
+            FieldSchema {
+                name: "quantity".to_string(),
+                type_: SnowflakeType::Fixed,
+                precision: Some(8),
+                scale: Some(0),
+                nullable: true,
+            },
+            FieldSchema {
+                name: "description".to_string(),
+                type_: SnowflakeType::Text,
+                precision: None,
+                scale: None,
+                nullable: true,
+            },
+        ];
+
+        let result_batch =
+            RawQueryResult::convert_decimal_columns(batch, &snowflake_schema).unwrap();
+        let result_schema = result_batch.schema();
+
+        assert_eq!(result_schema.fields().len(), 3);
+        assert_eq!(
+            result_schema.field(0).data_type(),
+            &DataType::Decimal128(10, 2)
+        );
+        assert_eq!(result_schema.field(0).name(), "price");
+        assert_eq!(
+            result_schema.field(1).data_type(),
+            &DataType::Decimal128(8, 0)
+        );
+        assert_eq!(result_schema.field(1).name(), "quantity");
+        assert_eq!(result_schema.field(2).data_type(), &DataType::Utf8);
+        assert_eq!(result_schema.field(2).name(), "description");
+        assert_eq!(result_batch.num_rows(), 2);
+        assert_eq!(result_batch.num_columns(), 3);
+
+        let price_column = result_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .unwrap();
+        assert_eq!(price_column.value(0), 12345); // Raw value preserved
+        assert_eq!(price_column.value(1), 67890);
+        assert_eq!(price_column.precision(), 10);
+        assert_eq!(price_column.scale(), 2);
+
+        let quantity_column = result_batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .unwrap();
+        assert_eq!(quantity_column.value(0), 1000);
+        assert_eq!(quantity_column.value(1), 2000);
+        assert_eq!(quantity_column.precision(), 8);
+        assert_eq!(quantity_column.scale(), 0);
+
+        let desc_column = result_batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        assert_eq!(desc_column.value(0), "test1");
+        assert_eq!(desc_column.value(1), "test2");
+    }
+
+    #[test]
+    fn test_non_fixed_types_unchanged() {
+        let int_array = Int32Array::from(vec![Some(123), Some(456)]);
+        let schema = ArrowSchema::new(vec![Field::new("count", DataType::Int32, true)]);
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(int_array)]).unwrap();
+        let snowflake_schema = vec![FieldSchema {
+            name: "count".to_string(),
+            type_: SnowflakeType::Real, // Not Fixed type
+            precision: Some(10),
+            scale: Some(2),
+            nullable: true,
+        }];
+        let result_batch =
+            RawQueryResult::convert_decimal_columns(batch, &snowflake_schema).unwrap();
+
+        assert_eq!(result_batch.schema().field(0).data_type(), &DataType::Int32);
+    }
+
+    #[test]
+    fn test_missing_precision_or_scale() {
+        let int_array = Int32Array::from(vec![Some(123), Some(456)]);
+        let schema = ArrowSchema::new(vec![Field::new("value", DataType::Int32, true)]);
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(int_array)]).unwrap();
+        let snowflake_schema = vec![FieldSchema {
+            name: "value".to_string(),
+            type_: SnowflakeType::Fixed,
+            precision: None, // Missing precision
+            scale: Some(2),
+            nullable: true,
+        }];
+        let result_batch =
+            RawQueryResult::convert_decimal_columns(batch, &snowflake_schema).unwrap();
+
+        assert_eq!(result_batch.schema().field(0).data_type(), &DataType::Int32);
+    }
+
+    #[test]
+    fn test_bytes_with_schema_deserialization() {
+        let int_array = Int32Array::from(vec![Some(12345), Some(67890)]);
+        let schema = ArrowSchema::new(vec![Field::new("price", DataType::Int32, true)]);
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(int_array)]).unwrap();
+        let mut buffer = Vec::new();
+        let mut writer = StreamWriter::try_new(&mut buffer, &batch.schema()).unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        let bytes = Bytes::from(buffer);
+        let snowflake_schema = vec![FieldSchema {
+            name: "price".to_string(),
+            type_: SnowflakeType::Fixed,
+            precision: Some(10),
+            scale: Some(2),
+            nullable: true,
+        }];
+
+        let raw_result = RawQueryResult::BytesWithSchema(vec![bytes], snowflake_schema);
+        let query_result = raw_result.deserialize_arrow().unwrap();
+
+        match query_result {
+            QueryResult::Arrow(batches) => {
+                assert_eq!(batches.len(), 1);
+                let result_batch = &batches[0];
+
+                assert_eq!(
+                    result_batch.schema().field(0).data_type(),
+                    &DataType::Decimal128(10, 2)
+                );
+
+                let decimal_column = result_batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Decimal128Array>()
+                    .unwrap();
+                assert_eq!(decimal_column.value(0), 12345);
+                assert_eq!(decimal_column.value(1), 67890);
+                assert_eq!(decimal_column.precision(), 10);
+                assert_eq!(decimal_column.scale(), 2);
+            }
+            _ => panic!("Expected Arrow result"),
+        }
+    }
+
+    #[test]
+    fn test_various_precision_scale_combinations() {
+        let test_cases = vec![
+            (5, 0),   // Integer-like: 12345
+            (5, 2),   // Currency-like: 123.45
+            (10, 4),  // High precision: 123456.7890
+            (38, 10), // Maximum precision with high scale
+        ];
+
+        for (precision, scale) in test_cases {
+            let int_array = Int32Array::from(vec![Some(1234567890)]);
+            let array_ref: ArrayRef = Arc::new(int_array);
+            let result =
+                RawQueryResult::convert_integer_to_decimal(&array_ref, precision, scale).unwrap();
+
+            assert_eq!(result.data_type(), &DataType::Decimal128(precision, scale));
+
+            let decimal_array = result.as_any().downcast_ref::<Decimal128Array>().unwrap();
+            assert_eq!(decimal_array.precision(), precision);
+            assert_eq!(decimal_array.scale(), scale);
+            assert_eq!(decimal_array.value(0), 1234567890);
+        }
     }
 }
