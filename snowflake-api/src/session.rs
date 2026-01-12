@@ -300,7 +300,7 @@ impl Session {
         Ok(PasswordLoginRequest {
             data: PasswordRequestData {
                 login_request_common: self.login_request_common(),
-                password: password.to_string(),
+                password: password.clone(),
             },
         })
     }
