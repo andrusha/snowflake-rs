@@ -106,7 +106,7 @@ pub struct SessionInfo {
 // FIXME: dead_code
 #[allow(dead_code)]
 pub struct AuthenticatorResponseData {
-    pub token_url: String,
+    pub token_url: Option<String>,
     pub sso_url: String,
     pub proof_key: String,
 }

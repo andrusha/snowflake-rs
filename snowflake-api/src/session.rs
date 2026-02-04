@@ -8,6 +8,10 @@ use thiserror::Error;
 
 use crate::connection;
 use crate::connection::{Connection, QueryType};
+#[cfg(feature = "browser-auth")]
+use crate::requests::{
+    AuthenticatorRequest, AuthenticatorRequestData, BrowserLoginRequest, BrowserRequestData,
+};
 #[cfg(feature = "cert-auth")]
 use crate::requests::{CertLoginRequest, CertRequestData};
 use crate::requests::{
@@ -50,6 +54,13 @@ pub enum AuthError {
 
     #[error("Enable the cert-auth feature to use certificate authentication")]
     CertAuthNotEnabled,
+
+    #[error("Enable the browser-auth feature to use external browser authentication")]
+    BrowserAuthNotEnabled,
+
+    #[cfg(feature = "browser-auth")]
+    #[error(transparent)]
+    BrowserAuthError(#[from] crate::browser::BrowserAuthError),
 }
 
 #[derive(Debug)]
@@ -105,6 +116,8 @@ impl AuthToken {
 enum AuthType {
     Certificate,
     Password,
+    #[cfg(feature = "browser-auth")]
+    Browser,
 }
 
 /// Requests, caches, and renews authentication tokens.
@@ -208,6 +221,41 @@ impl Session {
         }
     }
 
+    /// Authenticate using external browser SSO
+    #[cfg(feature = "browser-auth")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn browser_auth(
+        connection: Arc<Connection>,
+        account_identifier: &str,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+    ) -> Self {
+        let account_identifier = account_identifier.to_uppercase();
+
+        let database = database.map(str::to_uppercase);
+        let schema = schema.map(str::to_uppercase);
+
+        let username = username.to_uppercase();
+        let role = role.map(str::to_uppercase);
+
+        Self {
+            connection,
+            auth_tokens: Mutex::new(None),
+            auth_type: AuthType::Browser,
+            account_identifier,
+            warehouse: warehouse.map(str::to_uppercase),
+            database,
+            username,
+            role,
+            password: None,
+            schema,
+            private_key_pem: None,
+        }
+    }
+
     /// Get cached token or request a new one if old one has expired.
     pub async fn get_token(&self) -> Result<AuthParts, AuthError> {
         let mut auth_tokens = self.auth_tokens.lock().await;
@@ -216,7 +264,7 @@ impl Session {
                 .as_ref()
                 .is_some_and(|at| at.master_token.is_expired())
         {
-            // Create new session if tokens are absent or can not be exchange
+            // Create new session if tokens are absent or can not be exchanged
             let tokens = match self.auth_type {
                 AuthType::Certificate => {
                     log::info!("Starting session with certificate authentication");
@@ -229,6 +277,11 @@ impl Session {
                 AuthType::Password => {
                     log::info!("Starting session with password authentication");
                     self.create(self.passwd_request_body()?).await
+                }
+                #[cfg(feature = "browser-auth")]
+                AuthType::Browser => {
+                    log::info!("Starting session with external browser authentication");
+                    self.create_browser_session().await
                 }
             }?;
             *auth_tokens = Some(tokens);
@@ -378,6 +431,95 @@ impl Session {
                 ocsp_mode: "FAIL_OPEN".to_string(),
             },
         }
+    }
+
+    /// Browser SSO authentication flow:
+    /// 1. Create local TCP listener for callback
+    /// 2. Generate proof key
+    /// 3. Send authenticator-request to get SSO URL
+    /// 4. Open browser with SSO URL
+    /// 5. Wait for token on local listener
+    /// 6. Send login-request with token and proof key
+    #[cfg(feature = "browser-auth")]
+    async fn create_browser_session(&self) -> Result<AuthTokens, AuthError> {
+        use crate::browser::{
+            create_local_listener, generate_proof_key, open_browser, wait_for_token,
+        };
+
+        // Step 1: Create local listener for callback
+        let (listener, port) = create_local_listener()?;
+
+        // Step 2: Generate proof key
+        let proof_key = generate_proof_key();
+
+        // Step 3: Send authenticator-request to get SSO URL
+        let auth_request = AuthenticatorRequest {
+            data: AuthenticatorRequestData {
+                client_app_id: "Go".to_string(),
+                client_app_version: "1.6.22".to_string(),
+                svn_revision: String::new(),
+                account_name: self.account_identifier.clone(),
+                login_name: self.username.clone(),
+                authenticator: "EXTERNALBROWSER".to_string(),
+                browser_mode_redirect_port: port.to_string(),
+                proof_key: proof_key.clone(),
+                client_environment: crate::requests::AuthenticatorClientEnvironment {
+                    application: "Rust".to_string(),
+                    os: std::env::consts::OS.to_string(),
+                    os_version: "unknown".to_string(),
+                },
+            },
+        };
+
+        let resp = self
+            .connection
+            .request::<AuthResponse>(
+                QueryType::AuthenticatorRequest,
+                &self.account_identifier,
+                &[],
+                None,
+                auth_request,
+            )
+            .await?;
+
+        let (sso_url, server_proof_key) = match resp {
+            AuthResponse::Auth(auth_resp) => (auth_resp.data.sso_url, auth_resp.data.proof_key),
+            AuthResponse::Error(e) => {
+                return Err(AuthError::AuthFailed(
+                    e.code.unwrap_or_default(),
+                    e.message.unwrap_or_default(),
+                ));
+            }
+            _ => return Err(AuthError::UnexpectedResponse),
+        };
+
+        // Use the server-returned proof_key for the login request
+        // The server may modify the proof key, and the login request must match
+        let final_proof_key = if server_proof_key.is_empty() {
+            proof_key
+        } else {
+            server_proof_key
+        };
+
+        // Step 4: Open browser with SSO URL
+        open_browser(&sso_url)?;
+
+        // Step 5: Wait for token on local listener (blocking)
+        let token = tokio::task::spawn_blocking(move || wait_for_token(&listener))
+            .await
+            .map_err(|_| AuthError::TokenFetchFailed)??;
+
+        // Step 6: Send login-request with token and proof key
+        let login_request = BrowserLoginRequest {
+            data: BrowserRequestData {
+                login_request_common: self.login_request_common(),
+                authenticator: "EXTERNALBROWSER".to_string(),
+                token,
+                proof_key: final_proof_key,
+            },
+        };
+
+        self.create(login_request).await
     }
 
     async fn renew(&self, token: AuthTokens) -> Result<AuthTokens, AuthError> {

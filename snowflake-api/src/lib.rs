@@ -38,6 +38,8 @@ use crate::requests::ExecRequest;
 use crate::responses::{ExecResponseRowType, SnowflakeType};
 use crate::session::AuthError::MissingEnvArgument;
 
+#[cfg(feature = "browser-auth")]
+mod browser;
 pub mod connection;
 #[cfg(feature = "polars")]
 mod polars;
@@ -196,14 +198,34 @@ pub struct AuthArgs {
 
 impl AuthArgs {
     pub fn from_env() -> Result<AuthArgs, SnowflakeApiError> {
-        let auth_type = if let Ok(password) = std::env::var("SNOWFLAKE_PASSWORD") {
-            Ok(AuthType::Password(PasswordArgs { password }))
-        } else if let Ok(private_key_pem) = std::env::var("SNOWFLAKE_PRIVATE_KEY") {
-            Ok(AuthType::Certificate(CertificateArgs { private_key_pem }))
-        } else {
-            Err(MissingEnvArgument(
-                "SNOWFLAKE_PASSWORD or SNOWFLAKE_PRIVATE_KEY".to_owned(),
-            ))
+        let authenticator = std::env::var("SNOWFLAKE_AUTHENTICATOR")
+            .ok()
+            .map(|s| s.to_lowercase());
+
+        let auth_type = match authenticator.as_deref() {
+            #[cfg(feature = "browser-auth")]
+            Some("externalbrowser") => Ok(AuthType::ExternalBrowser),
+            _ => {
+                // Fall back to password or certificate auth
+                if let Ok(password) = std::env::var("SNOWFLAKE_PASSWORD") {
+                    Ok(AuthType::Password(PasswordArgs { password }))
+                } else if let Ok(private_key_pem) = std::env::var("SNOWFLAKE_PRIVATE_KEY") {
+                    Ok(AuthType::Certificate(CertificateArgs { private_key_pem }))
+                } else {
+                    #[cfg(feature = "browser-auth")]
+                    {
+                        Err(MissingEnvArgument(
+                            "SNOWFLAKE_PASSWORD, SNOWFLAKE_PRIVATE_KEY, or SNOWFLAKE_AUTHENTICATOR=externalbrowser".to_owned(),
+                        ))
+                    }
+                    #[cfg(not(feature = "browser-auth"))]
+                    {
+                        Err(MissingEnvArgument(
+                            "SNOWFLAKE_PASSWORD or SNOWFLAKE_PRIVATE_KEY".to_owned(),
+                        ))
+                    }
+                }
+            }
         };
 
         Ok(AuthArgs {
@@ -223,6 +245,8 @@ impl AuthArgs {
 pub enum AuthType {
     Password(PasswordArgs),
     Certificate(CertificateArgs),
+    #[cfg(feature = "browser-auth")]
+    ExternalBrowser,
 }
 
 pub struct PasswordArgs {
@@ -275,6 +299,16 @@ impl SnowflakeApiBuilder {
                 &self.auth.username,
                 self.auth.role.as_deref(),
                 &args.private_key_pem,
+            ),
+            #[cfg(feature = "browser-auth")]
+            AuthType::ExternalBrowser => Session::browser_auth(
+                Arc::clone(&connection),
+                &self.auth.account_identifier,
+                self.auth.warehouse.as_deref(),
+                self.auth.database.as_deref(),
+                self.auth.schema.as_deref(),
+                &self.auth.username,
+                self.auth.role.as_deref(),
             ),
         };
 
@@ -356,6 +390,39 @@ impl SnowflakeApi {
             username,
             role,
             private_key_pem,
+        );
+
+        let account_identifier = account_identifier.to_uppercase();
+        Ok(Self::new(
+            Arc::clone(&connection),
+            session,
+            account_identifier,
+        ))
+    }
+
+    /// Initialize object with external browser SSO auth. Authentication happens on the first request.
+    ///
+    /// This will open a browser window for the user to authenticate via their `IdP`.
+    /// Requires the `browser-auth` feature.
+    #[cfg(feature = "browser-auth")]
+    pub fn with_browser_auth(
+        account_identifier: &str,
+        warehouse: Option<&str>,
+        database: Option<&str>,
+        schema: Option<&str>,
+        username: &str,
+        role: Option<&str>,
+    ) -> Result<Self, SnowflakeApiError> {
+        let connection = Arc::new(Connection::new()?);
+
+        let session = Session::browser_auth(
+            Arc::clone(&connection),
+            account_identifier,
+            warehouse,
+            database,
+            schema,
+            username,
+            role,
         );
 
         let account_identifier = account_identifier.to_uppercase();

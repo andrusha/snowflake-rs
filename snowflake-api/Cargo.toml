@@ -12,8 +12,9 @@ repository = "https://github.com/mycelial/snowflake-rs"
 version = "0.14.0"
 
 [features]
-all = ["cert-auth", "polars"]
+all = ["cert-auth", "polars", "browser-auth"]
 cert-auth = ["dep:snowflake-jwt"]
+browser-auth = ["dep:getrandom", "dep:urlencoding", "dep:open"]
 default = ["cert-auth"]
 # support for conversion of arrow and json payloads to dataframes
 polars = ["dep:polars-core", "dep:polars-io"]
@@ -48,6 +49,11 @@ polars-io = { version = ">=0.41", features = [
     "json",
     "ipc_streaming",
 ], optional = true }
+
+# browser-auth support
+getrandom = { version = "0.3", optional = true }
+urlencoding = { version = "2", optional = true }
+open = { version = "5", optional = true }
 
 # put request support
 glob = { version = "0.3" }

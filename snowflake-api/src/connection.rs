@@ -35,6 +35,7 @@ struct QueryContext {
 
 pub enum QueryType {
     LoginRequest,
+    AuthenticatorRequest,
     TokenRequest,
     CloseSession,
     JsonQuery,
@@ -46,6 +47,10 @@ impl QueryType {
         match self {
             Self::LoginRequest => QueryContext {
                 path: "session/v1/login-request",
+                accept_mime: "application/json",
+            },
+            Self::AuthenticatorRequest => QueryContext {
+                path: "session/authenticator-request",
                 accept_mime: "application/json",
             },
             Self::TokenRequest => QueryContext {
@@ -171,7 +176,7 @@ impl Connection {
             .send()
             .await?;
 
-        Ok(resp.json::<R>().await?)
+        Ok(resp.json().await?)
     }
 
     pub async fn get_chunk(
