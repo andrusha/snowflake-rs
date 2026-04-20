@@ -278,7 +278,10 @@ impl Session {
 
     #[cfg(feature = "cert-auth")]
     fn cert_request_body(&self) -> Result<CertLoginRequest, AuthError> {
-        let full_identifier = format!("{}.{}", &self.account_identifier, &self.username);
+        // we want to strip region information from the account identifier
+        // See: https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/authentication#label-sfrest-api-jwt-token
+        let account = self.account_identifier.split(".").next().unwrap_or(&self.account_identifier);
+        let full_identifier = format!("{}.{}", &account, &self.username);
         let private_key_pem = self
             .private_key_pem
             .as_ref()
