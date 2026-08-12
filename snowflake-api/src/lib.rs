@@ -93,6 +93,9 @@ pub enum SnowflakeApiError {
     #[error("Unexpected API response")]
     UnexpectedResponse,
 
+    #[error("Snowflake query still in progress after polling its result URL {0} times")]
+    QueryInProgressTimeout(u32),
+
     #[error(transparent)]
     GlobPatternError(#[from] glob::PatternError),
 
@@ -435,6 +438,13 @@ impl SnowflakeApi {
         let resp = self
             .run_sql::<ExecResponse>(sql, QueryType::ArrowQuery)
             .await?;
+        // Resolve Snowflake's async "query in progress" response (only
+        // `getResultUrl`, no rows) — returned while a warehouse resumes or a
+        // slow query runs — by polling the result URL until it completes
+        // (OSS-241). A synchronous result passes straight through.
+        let resp = self
+            .await_query_result(resp, QueryType::ArrowQuery.accept_mime())
+            .await?;
         log::debug!("Got query response: {resp:?}");
 
         let resp = match resp {
@@ -483,6 +493,54 @@ impl SnowflakeApi {
         }
     }
 
+    /// Follow Snowflake's async result-polling (ping-pong) protocol (OSS-241).
+    ///
+    /// When a query does not complete within the initial request window (e.g. a
+    /// suspended warehouse is resuming, or the statement is slow), Snowflake
+    /// replies with an "in progress" envelope carrying a `getResultUrl` and no
+    /// result rows. The client must GET that URL until the actual result is
+    /// returned. A response that already carries a result (no `getResultUrl`)
+    /// is returned unchanged.
+    async fn await_query_result(
+        &self,
+        resp: ExecResponse,
+        accept_mime: &str,
+    ) -> Result<ExecResponse, SnowflakeApiError> {
+        // ~60s ceiling (120 × 500ms) — comfortably covers a warehouse resume
+        // without hanging catalog build forever.
+        const MAX_POLLS: u32 = 120;
+        const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+        let mut current = resp;
+        for _ in 0..MAX_POLLS {
+            // Only a Query envelope is ever "in progress"; anything else, or a
+            // Query with no `getResultUrl`, is already complete.
+            let result_url = match &current {
+                ExecResponse::Query(qr) => qr.data.get_result_url.clone(),
+                _ => None,
+            };
+            let Some(result_url) = result_url else {
+                return Ok(current);
+            };
+
+            log::debug!("Query in progress; polling result url after {POLL_INTERVAL:?}");
+            tokio::time::sleep(POLL_INTERVAL).await;
+
+            let parts = self.session.get_token().await?;
+            current = self
+                .connection
+                .get_result::<ExecResponse>(
+                    &self.account_identifier,
+                    &result_url,
+                    accept_mime,
+                    Some(&parts.session_token_auth_header),
+                )
+                .await?;
+        }
+
+        Err(SnowflakeApiError::QueryInProgressTimeout(MAX_POLLS))
+    }
+
     async fn run_sql<R: serde::de::DeserializeOwned>(
         &self,
         sql_text: &str,
@@ -511,5 +569,42 @@ impl SnowflakeApi {
             .await?;
 
         Ok(resp)
+    }
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn in_progress_response_deserializes_and_signals_polling() {
+        // Snowflake's async "query in progress" envelope carries only
+        // getResultUrl / queryId (no result rows), returned while a warehouse
+        // resumes or a slow query runs. It must deserialize as a Query response
+        // with `get_result_url` set — that's the signal the client polls on.
+        // Before the fix, the missing result fields made the untagged
+        // `ExecResponse` reject every variant ("error decoding response body").
+        let body = r#"{
+            "data": {
+                "getResultUrl": "/queries/01c65896-0000-0000-0000-000000000000/result",
+                "queryId": "01c65896-0000-0000-0000-000000000000",
+                "progressDesc": "",
+                "queryAbortsAfterSecs": 300
+            },
+            "code": "333334",
+            "message": null,
+            "success": true
+        }"#;
+        let resp: crate::responses::ExecResponse =
+            serde_json::from_str(body).expect("in-progress response must deserialize");
+        match resp {
+            crate::responses::ExecResponse::Query(qr) => {
+                assert_eq!(
+                    qr.data.get_result_url.as_deref(),
+                    Some("/queries/01c65896-0000-0000-0000-000000000000/result"),
+                    "getResultUrl drives the polling loop"
+                );
+                assert!(qr.data.rowtype.is_empty(), "no result rows yet");
+                assert_eq!(qr.data.returned, 0);
+            }
+            other => panic!("expected Query variant, got {other:?}"),
+        }
     }
 }
