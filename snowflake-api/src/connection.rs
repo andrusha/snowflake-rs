@@ -42,6 +42,12 @@ pub enum QueryType {
 }
 
 impl QueryType {
+    /// MIME type this query type expects back — also used when polling an
+    /// async result URL so the format matches the original request.
+    pub const fn accept_mime(&self) -> &'static str {
+        self.query_context().accept_mime
+    }
+
     const fn query_context(&self) -> QueryContext {
         match self {
             Self::LoginRequest => QueryContext {
@@ -171,7 +177,48 @@ impl Connection {
             .send()
             .await?;
 
-        Ok(resp.json::<R>().await?)
+        // Read the body as text and deserialize explicitly so a schema mismatch
+        // surfaces serde's precise error (missing/renamed field, wrong type)
+        // instead of reqwest's opaque "error decoding response body" (OSS-241).
+        let status = resp.status();
+        let text = resp.text().await?;
+        serde_json::from_str::<R>(&text).map_err(|e| {
+            log::debug!("failed to deserialize Snowflake response (status {status}): {e}");
+            ConnectionError::Deserialization(e)
+        })
+    }
+
+    /// Poll a result URL handed back by an async "query in progress" response
+    /// (`getResultUrl`). Issues a GET with a fresh request id and the session
+    /// auth header, deserializing the same response envelope the initial POST
+    /// returns (OSS-241). `result_path` is an absolute path, e.g.
+    /// `/queries/<id>/result`, possibly already carrying a query string.
+    pub async fn get_result<R: serde::de::DeserializeOwned>(
+        &self,
+        account_identifier: &str,
+        result_path: &str,
+        accept_mime: &str,
+        auth: Option<&str>,
+    ) -> Result<R, ConnectionError> {
+        let request_id = Uuid::new_v4().to_string();
+        let request_guid = Uuid::new_v4().to_string();
+        let sep = if result_path.contains('?') { '&' } else { '?' };
+        let url = format!(
+            "https://{account_identifier}.snowflakecomputing.com{result_path}{sep}requestId={request_id}&request_guid={request_guid}"
+        );
+        let url = Url::parse(&url)?;
+
+        let mut headers = HeaderMap::new();
+        headers.append(header::ACCEPT, HeaderValue::from_str(accept_mime)?);
+        if let Some(auth) = auth {
+            let mut auth_val = HeaderValue::from_str(auth)?;
+            auth_val.set_sensitive(true);
+            headers.append(header::AUTHORIZATION, auth_val);
+        }
+
+        let resp = self.client.get(url).headers(headers).send().await?;
+        let text = resp.text().await?;
+        Ok(serde_json::from_str::<R>(&text)?)
     }
 
     pub async fn get_chunk(
